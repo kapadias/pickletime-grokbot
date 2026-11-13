@@ -583,8 +583,6 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         settings = _load_settings(dry_run=None, require_credentials=False)
         b = settings.booking
         _check(results, "config", True, f"{CONFIG}: release {b.release_time}, {b.timezone}, {b.days_in_advance} days ahead")
-        if b.gcp_notifications_enabled:
-            _check(results, "notifications", None, "gcp_notifications_enabled is true; on Grok Bot the chat is the alert - set it false")
     except Exception as exc:
         _check(results, "config", False, str(exc).splitlines()[0])
 
@@ -616,7 +614,10 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # 7. Full: real Chrome against a local fake CourtReserve (no live site).
     if args.full:
         _configure_engine_logging("doctor")
-        ok, detail = _fake_site_rehearsal()
+        try:
+            ok, detail = _fake_site_rehearsal()
+        except Exception as exc:  # a crash here is a failed check, not a traceback
+            ok, detail = False, f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
         _check(results, "fake_site_booking", ok, detail)
 
     for status, name, detail in results:
@@ -650,7 +651,7 @@ def _fake_site_rehearsal() -> tuple[bool, str]:
     state = SiteState(slots={"11:30 AM": ["30 minutes", "1 hour"]})
     creds = Credentials(username=state.username, password=state.password)
     runtime = RuntimeSettings(
-        log_level="WARNING", log_json=False, require_auth=False, ledger_path=str(STATE / "fake-site-ledger.json")
+        log_level="WARNING", log_json=False, ledger_path=str(STATE / "fake-site-ledger.json")
     )
     target = BookingSettings(**base).target_date()
     titles = [format_long_date(target + timedelta(days=o)) for o in (-1, 0, 1)]

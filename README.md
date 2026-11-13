@@ -76,8 +76,9 @@ booking window to ..."**, **"back to rehearsal"**, **"book now"**.
   If Grok stops it, `show routine timing` says so, and SETUP.md section 8
   switches to a detached run plus a 12:30 report routine.
 - **Missed runs are not replayed.** Say "book now" to try later the same day.
-- Notifications come from Grok, not Cloud Monitoring SMS; the config template
-  turns `gcp_notifications_enabled` off.
+- Notifications come from Grok: each result is posted in the Bot's chat, and
+  Grok's notifications bring it to your phone. There is no SMS or email
+  alerting of its own.
 
 ## Repository
 
