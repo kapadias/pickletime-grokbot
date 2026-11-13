@@ -1,8 +1,8 @@
 # Set up PickleTime Bot
 
-You are a Grok Bot setting up the owner's court-booking bot. It runs
-[PickleTime](https://github.com/kapadias/PickleTime), pinned to an exact commit, on
-this Grok Bot computer, and replaces the owner's Cloud Run service and Cloud
+You are a Grok Bot setting up the owner's court-booking bot. It runs the
+booking engine in this repository (`src/pickletime`) on this Grok Bot computer,
+and replaces the owner's Cloud Run service and Cloud
 Scheduler job. Sections 1 to 6 are the first run (your checklist:
 `pickletime-bot-bootstrap`). Section 7 holds the later steps, each started by a
 phrase the owner says. Steps marked **You** are the owner's alone.
@@ -10,7 +10,7 @@ phrase the owner says. Steps marked **You** are the owner's alone.
 | Path | What it is |
 | --- | --- |
 | `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.1.0`; never edited |
-| `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/`, `engine/` (Chrome, Python, PickleTime) |
+| `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/` (Chrome, Python, the installed engine) |
 | `/workspace/.pickletime-secrets/courtreserve.env` | only if the owner chooses a file instead of the secret card (mode 0600) |
 
 Grok Bot keeps `/workspace` between sessions but not installed packages, and
@@ -39,17 +39,14 @@ bash /workspace/pickletime-grokbot/scripts/install.sh
 About a minute the first time; a re-run only prints `skip:` lines. It installs,
 all under `/workspace/pickletime-desk`:
 
-- uv, then Python 3.11 (PickleTime needs 3.11 or later), whatever `python3` the computer has;
-- PickleTime at the commit in `pins.env`, into its own venv;
-- Chrome and ChromeDriver from one Chrome for Testing release (the version PickleTime's Dockerfile pins);
+- uv, then Python 3.11 (the engine needs 3.11 or later), whatever `python3` the computer has;
+- the booking engine (`src/pickletime` in this checkout) and its dependencies, into their own venv;
+- Chrome and ChromeDriver from one Chrome for Testing release (the version in `pins.env`);
 - Chrome's system libraries, if any are missing: with `apt-get` as root or passwordless sudo, otherwise downloaded and unpacked under `/workspace` without root;
 - `config.yaml`, copied once from `config/config.template.yaml`, and the mode `rehearsal`.
 
 A `FAIL:` line stops setup. Post it verbatim with the matching entry from
-section 11. One failure is expected when PickleTime is a private repository:
-`FAIL: could not clone PickleTime; if ... is private, add a read-only GitHub
-token as PICKLETIME_GITHUB_TOKEN ...`. Then do section 4 now (all three
-secrets in one visit to the card) and run `install.sh` again.
+section 11.
 
 ## 3. Prove Chrome works here
 
@@ -57,7 +54,7 @@ secrets in one visit to the card) and run `install.sh` again.
 run.sh doctor --full
 ```
 
-`--full` books a court on PickleTime's own fake CourtReserve, served on
+`--full` books a court on the test suite's fake CourtReserve, served on
 `127.0.0.1`, with the installed Chrome: the same code path as a real booking,
 with no live site involved. Expect:
 
@@ -75,12 +72,9 @@ with no live site involved. Expect:
 | --- | --- |
 | `USERID` | the email you log in to CourtReserve with |
 | `PASSWORD` | its password |
-| `PICKLETIME_GITHUB_TOKEN` | only if `kapadias/PickleTime` is private: a fine-grained GitHub token with access to that one repository and **Contents: Read-only**, nothing else (GitHub, Settings, Developer settings, Fine-grained tokens) |
 
 A secret on the card is visible to every Bot on the Grok computer, so use a
-CourtReserve password you use nowhere else, and a token that can only read
-PickleTime. The token is used only by `install.sh` to clone and fetch the
-engine; it is never written to disk. Fallback if the card is
+CourtReserve password you use nowhere else. Fallback if the card is
 unavailable: create `/workspace/.pickletime-secrets/courtreserve.env` yourself,
 mode 0600, with the two lines `USERID=...` and `PASSWORD=...`. The card wins
 when both exist.
@@ -106,10 +100,8 @@ Setup booked nothing: mode is rehearsal; your CourtReserve login was added by yo
 
 Show the change as a diff to `/workspace/pickletime-desk/config.yaml`; write it
 only after the owner taps approve on the Ask-first card; then `run.sh status`
-and post the new play dates and windows. Keys and their meaning:
-PickleTime's [README](https://github.com/kapadias/PickleTime#configuration) and
-`config.sample.yaml` in `/workspace/pickletime-desk/engine/PickleTime`. If
-`release_time` changes, the `book` routine moves with it (release_time minus
+and post the new play dates and windows. Every key, its default and its
+meaning: `config/config.sample.yaml` in the checkout. If `release_time` changes, the `book` routine moves with it (release_time minus
 the offset from 7.2).
 
 ### 7.2 "turn on the routine"
@@ -129,7 +121,7 @@ the offset from 7.2).
    ```
 
    ```text
-   Ask first: any command carrying --owner-tapped or --ignore-ledger, including run.sh go-live and run.sh rehearse; writing, replacing or deleting /workspace/pickletime-desk/config.yaml or anything under /workspace/pickletime-desk/state; editing anything under /workspace/pickletime-grokbot or /workspace/pickletime-desk/engine; cancelling or changing a court reservation; any payment; typing the CourtReserve password into any page or command yourself.
+   Ask first: any command carrying --owner-tapped or --ignore-ledger, including run.sh go-live and run.sh rehearse; writing, replacing or deleting /workspace/pickletime-desk/config.yaml or anything under /workspace/pickletime-desk/state; editing anything under /workspace/pickletime-grokbot; cancelling or changing a court reservation; any payment; typing the CourtReserve password into any page or command yourself.
    ```
 
    Auto-review is model-based and an "Ask first" rule wins over an "Allow"
@@ -202,7 +194,7 @@ tell the owner.
 
 ## 9. "retire Cloud Run"
 
-**You**, on a machine with `gcloud` signed in to the project PickleTime was deployed to:
+**You**, on a machine with `gcloud` signed in to the project the Cloud Run service was deployed to:
 
 ```bash
 gcloud scheduler jobs pause pickletime-scheduler --location=us-west1
@@ -216,8 +208,7 @@ Google Cloud access, and should not.
 
 ## 10. Updating
 
-A new release changes `pins.env` (the PickleTime commit, Chrome) and the
-skills. Ask the Bot: "update PickleTime Bot to vX.Y.Z". It clones the new tag
+A new release changes the engine, `pins.env` (Chrome) and the skills. Ask the Bot: "update PickleTime Bot to vX.Y.Z". It clones the new tag
 next to the old one, runs `install.sh` and `doctor --full` from the new
 checkout, and after the owner's tap swaps the directories. `config.yaml`,
 `state/` and the secrets are never touched.
@@ -228,12 +219,12 @@ checkout, and after the owner's tap swaps the directories. `config.yaml`,
 | --- | --- |
 | `FAIL: could not download uv` / `Chrome` | the computer cannot reach astral.sh or storage.googleapis.com; ask Grok Bot support about outbound access |
 | `FAIL: Chrome needs: libnss3.so ...` | no root, no sudo and no `apt-get`; ask Grok Bot support whether packages can be installed |
-| `FAIL: ... has local edits` | someone changed the engine checkout; `git -C /workspace/pickletime-desk/engine/PickleTime checkout -- .` after the owner's tap |
+| `[FAIL] engine: ... run scripts/install.sh` | the venv holds code from another checkout; run `install.sh` again |
 | `[FAIL] fake_site_booking` | Chrome starts but cannot drive the page; post the line and `logs/*-doctor.log` |
 | `[WARN] release_pin` | the checkout is not the tag; re-clone section 1 |
 | `[FAIL] credentials` | a secret is missing or misnamed; the names are exactly `USERID` and `PASSWORD` |
 | `FAILED for <date>: LoginError` | wrong password or a locked account; check it in CourtReserve, then update the card |
-| `NOT BOOKED: ... not offered` | the club's duration wording changed; set `duration_labels` (7.1), see PickleTime's README |
+| `NOT BOOKED: ... not offered` | the club's duration wording changed; set `duration_labels` (7.1); `config/config.sample.yaml` explains it |
 
 The engine's full log for every run is in `/workspace/pickletime-desk/logs/`,
 and each run's record (timings, verdict, lateness) in `state/runs/`.

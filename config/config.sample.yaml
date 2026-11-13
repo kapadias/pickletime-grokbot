@@ -1,0 +1,125 @@
+# PickleTime Bot configuration reference: every key, with its default.
+#
+# The bot's live config is /workspace/pickletime-desk/config.yaml, seeded from
+# config.template.yaml. This file is documentation; nothing reads it.
+#
+# Credentials do NOT go here. They come from the environment (USERID / PASSWORD):
+# Grok Bot's secure secret card, or a .env file for local runs.
+#
+# Every key is validated on load: an unknown key or a malformed value fails the
+# run immediately rather than being silently ignored.
+
+# ---------------------------------------------------------------------------
+# Facility
+# ---------------------------------------------------------------------------
+organization_id: 13233          # your club's CourtReserve org ID
+sport_id: 16984                 # 16984 = pickleball at that org
+sport_name: "Pickleball"
+court_type: "Pickleball"
+# Appears in the grid slot URLs as courtTypeId. Optional — slot matching keys on
+# the start time and scheduler id — but it makes the fast path hit.
+court_type_id: 9
+base_url: "https://app.courtreserve.com"
+
+# ---------------------------------------------------------------------------
+# What to book
+# ---------------------------------------------------------------------------
+# All dates and times are interpreted in this timezone, never the server's.
+timezone: "America/Los_Angeles"
+
+days_in_advance: 8              # book this many days out from "today" in `timezone`
+# court_date: "12/25/2025"      # or pin an exact date (MM/DD/YYYY); wins over the above
+
+search_start_time: "10:00 AM"   # earliest slot to consider
+search_end_time: "12:00 PM"     # latest slot to consider
+time_increment: 30              # minutes between candidate start times
+slot_length_minutes: 30         # length of one grid cell on the site
+
+preferred_durations: [60, 30]   # minutes, best first
+
+# The bot matches the duration dropdown by its visible text, defaulting to
+# CourtReserve's usual wording ("1 hour", "30 minutes"). If your club words them
+# differently, map them here — `pickletime --diagnose` prints the real options.
+# duration_labels:
+#   60: "60 Minutes"
+#   30: "30 Minutes"
+
+# "duration" -> try 60min at every slot, then 30min at every slot
+# "time"     -> try every duration at the best slot, then move to the next slot
+booking_priority: "duration"
+
+# Slots listed here are tried before anything else, in this order.
+priority_time_slots:
+  - "11:30 AM"
+  - "10:30 AM"
+  - "10:00 AM"
+
+# ---------------------------------------------------------------------------
+# Which days to play (optional)
+# ---------------------------------------------------------------------------
+# Only book on a repeating cycle of dates. The trigger still fires daily; a date
+# outside the cycle is skipped before Chrome starts, and reports success rather
+# than a failure. Omit this block to book every day.
+#
+# Use it when the pattern does not repeat weekly and so cannot go in the cron
+# expression — a 2-2-3 childcare rotation repeats every 14 days, and which
+# weekdays are free alternates between the two weeks.
+#
+# Offsets are counted in days from anchor_date, which is day 0. Verify with
+# `pickletime --print-config`, which prints the next dates and when each fires;
+# an anchor that is off by a day is otherwise invisible until a court is booked
+# on the wrong evening.
+# rotation:
+#   anchor_date: "08/24/2026"
+#   cycle_days: 14
+#   play_on_offsets: [3, 7, 11]
+
+# ---------------------------------------------------------------------------
+# Different times on different days (optional)
+# ---------------------------------------------------------------------------
+# Replaces the window and the priority list on the weekdays you name; every
+# other day uses the values above. Keyed by weekday rather than by cycle offset,
+# because when you play on a Saturday holds whichever half of the rotation that
+# Saturday falls in. A misspelled weekday is rejected at load.
+#
+# `pickletime --print-config` prints the window each upcoming date resolves to.
+# weekday_overrides:
+#   Saturday:
+#     search_start_time: "9:00 AM"
+#     search_end_time: "10:30 AM"
+#     priority_time_slots: ["9:00 AM", "10:00 AM", "9:30 AM", "10:30 AM"]
+#     preferred_durations: [60, 30]     # optional, like the others
+
+# ---------------------------------------------------------------------------
+# Winning the slot race
+# ---------------------------------------------------------------------------
+# When slots become bookable. scripts/ptbot.py starts the engine 3 minutes
+# EARLIER than this (the Grok routine fires earlier still): the bot logs in, opens the grid and selects the date during that lead
+# time, then fires the instant the clock reaches release_time.
+# Leave unset to sprint immediately on trigger.
+release_time: "12:00 PM"
+
+sprint_seconds: 25              # keep re-trying for this long after release
+release_grace_seconds: 180      # keep waiting this long for a date that opens late
+poll_interval_ms: 150           # how tightly to poll while sprinting
+max_arm_wait_seconds: 300       # never hold a request open longer than this
+
+max_retries: 1                  # extra full attempts after an infrastructure failure
+retry_interval: 5               # seconds before a retry
+
+# ---------------------------------------------------------------------------
+# Browser
+# ---------------------------------------------------------------------------
+headless: true
+webdriver_timeout: 15           # seconds to wait for any single element
+page_load_timeout: 30
+block_images: true              # big speed win; set false only when debugging
+window_size: "1920,1080"
+# chrome_driver_path: "/usr/local/bin/chromedriver"   # else Selenium Manager resolves it
+# chrome_binary: "/usr/bin/google-chrome"
+
+# ---------------------------------------------------------------------------
+# Safety and diagnostics
+# ---------------------------------------------------------------------------
+dry_run: false                  # true = walk the whole flow but never click Save
+# screenshot_dir: "screenshots" # save screenshots on login failures

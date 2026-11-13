@@ -18,13 +18,13 @@ QUICK=0
 say()  { printf '%s\n' "$*"; }
 fail() { say "FAIL: $*"; exit 1; }
 
-# Chrome's shared-library dependencies (the list PickleTime's Dockerfile uses).
+# Chrome's shared-library dependencies.
 CHROME_DEB_PACKAGES="ca-certificates fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 \
 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libgbm1 libglib2.0-0 libnspr4 libnss3 \
 libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 \
 libxrandr2 tzdata"
 
-mkdir -p "$PT_OPT/bin" "$PT_STATE/runs" "$PT_LOGS" "$(dirname "$PT_ENGINE")"
+mkdir -p "$PT_OPT/bin" "$PT_STATE/runs" "$PT_LOGS"
 
 # ---------------------------------------------------------------------------
 # Chrome system libraries (both modes)
@@ -80,7 +80,7 @@ if [ "$QUICK" = "1" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 1. uv (fetches Python and installs the engine)
+# 1. uv (fetches Python and installs the booking engine)
 # ---------------------------------------------------------------------------
 UV_VERSION=0.11.32
 if [ -x "$PT_OPT/bin/uv" ] && "$PT_OPT/bin/uv" --version | grep -q "$UV_VERSION"; then
@@ -93,57 +93,25 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. The booking engine, at the pinned commit
+# 2. Python + venv with the booking engine (src/pickletime) installed
 # ---------------------------------------------------------------------------
-# PickleTime may be a private repository. Then the owner adds a read-only
-# GitHub token as PICKLETIME_GITHUB_TOKEN on the secret card. It is passed to
-# git through the environment for these two commands only: never written to
-# .git/config, never on a command line.
-engine_git() {
-  if [ -n "${PICKLETIME_GITHUB_TOKEN:-}" ]; then
-    local basic
-    basic="$(printf 'x-access-token:%s' "$PICKLETIME_GITHUB_TOKEN" | base64 | tr -d '\n')"
-    GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 \
-      GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
-      GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic" git "$@"
-  else
-    GIT_TERMINAL_PROMPT=0 git "$@"
-  fi
-}
-private_hint="if $PICKLETIME_REPO is private, add a read-only GitHub token as PICKLETIME_GITHUB_TOKEN with the secret card (SETUP.md 4)"
-
-if [ ! -d "$PT_ENGINE/.git" ]; then
-  engine_git clone -q "$PICKLETIME_REPO" "$PT_ENGINE" 2>/dev/null \
-    || fail "could not clone PickleTime; $private_hint"
-fi
-if [ "$(git -C "$PT_ENGINE" rev-parse HEAD 2>/dev/null)" != "$PICKLETIME_COMMIT" ]; then
-  engine_git -C "$PT_ENGINE" fetch -q origin "$PICKLETIME_COMMIT" 2>/dev/null \
-    || engine_git -C "$PT_ENGINE" fetch -q origin 2>/dev/null \
-    || fail "could not fetch PickleTime; $private_hint"
-  git -C "$PT_ENGINE" -c advice.detachedHead=false checkout -q "$PICKLETIME_COMMIT" \
-    || fail "pinned commit $PICKLETIME_COMMIT is not in $PICKLETIME_REPO"
-fi
-[ -z "$(git -C "$PT_ENGINE" status --porcelain)" ] || fail "$PT_ENGINE has local edits; it must be the pinned commit, unmodified"
-say "ok: PickleTime at ${PICKLETIME_COMMIT:0:12}, clean"
-
-# ---------------------------------------------------------------------------
-# 3. Python + venv with the engine installed
-# ---------------------------------------------------------------------------
-STAMP="$PT_VENV/.pickletime-commit"
-if [ -x "$PT_VENV/bin/python" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$PICKLETIME_COMMIT" ] \
+CHECKOUT_COMMIT="$(git -C "$PT_CHECKOUT" rev-parse HEAD 2>/dev/null || echo unknown)"
+STAMP="$PT_VENV/.bot-commit"
+if [ -x "$PT_VENV/bin/python" ] && [ "$(cat "$STAMP" 2>/dev/null)" = "$CHECKOUT_COMMIT" ] \
    && "$PT_VENV/bin/python" -c "import pickletime" 2>/dev/null; then
-  say "skip: venv already has PickleTime ${PICKLETIME_COMMIT:0:12}"
+  say "skip: venv already has the engine from ${CHECKOUT_COMMIT:0:12}"
 else
   uv venv -q --allow-existing --python "$PYTHON_VERSION" "$PT_VENV" \
     || fail "uv could not create a Python $PYTHON_VERSION venv"
-  uv pip install -q --python "$PT_VENV/bin/python" "$PT_ENGINE" \
-    || fail "could not install PickleTime into $PT_VENV"
-  echo "$PICKLETIME_COMMIT" > "$STAMP"
-  say "ok: venv $("$PT_VENV/bin/python" --version 2>&1) with PickleTime installed"
+  # --reinstall: same version number, new code after an update.
+  uv pip install -q --reinstall-package pickletime-bot --python "$PT_VENV/bin/python" "$PT_CHECKOUT" \
+    || fail "could not install the booking engine into $PT_VENV"
+  echo "$CHECKOUT_COMMIT" > "$STAMP"
+  say "ok: venv $("$PT_VENV/bin/python" --version 2>&1) with the booking engine from ${CHECKOUT_COMMIT:0:12}"
 fi
 
 # ---------------------------------------------------------------------------
-# 4. Chrome + ChromeDriver, same Chrome for Testing release
+# 3. Chrome + ChromeDriver, same Chrome for Testing release
 # ---------------------------------------------------------------------------
 chrome_ok() {
   [ -x "$CHROME_BIN" ] && [ -x "$CHROME_DRIVER_PATH" ] \
@@ -178,7 +146,7 @@ fi
 ensure_chrome_libs
 
 # ---------------------------------------------------------------------------
-# 5. Desk files (never overwritten)
+# 4. Desk files (never overwritten)
 # ---------------------------------------------------------------------------
 if [ -f "$PT_DESK/config.yaml" ]; then
   say "skip: $PT_DESK/config.yaml exists (kept as is)"

@@ -1,4 +1,4 @@
-# PickleTime on Grok Bot: your booking configuration.
+# PickleTime Bot: your booking configuration.
 #
 # install.sh copies this file to /workspace/pickletime-desk/config.yaml once and
 # never overwrites it. Edit THAT copy (ask the bot: "change my booking window to
@@ -8,9 +8,8 @@
 # secret card. Every key is validated; run "show my booking status" to see what
 # it resolves to and the next play dates.
 #
-# Differences from the Cloud Run config.yaml in PickleTime:
-#   * gcp_notifications_enabled is false - the Grok chat is the alert channel.
-#   * the "slot race" comments describe the Grok routine, not Cloud Scheduler.
+# Results are posted in the Grok chat; there is no separate alerting setup.
+# Every key, with its default, is documented in config/config.sample.yaml.
 
 # --- facility --------------------------------------------------------------
 organization_id: 13233
@@ -101,8 +100,3 @@ block_images: true
 
 # --- safety ----------------------------------------------------------------
 dry_run: false
-
-# --- notifications ---------------------------------------------------------
-# Off on Grok Bot: each run's result is posted in the Bot's chat, and Grok's
-# own notifications deliver it to your phone.
-gcp_notifications_enabled: false

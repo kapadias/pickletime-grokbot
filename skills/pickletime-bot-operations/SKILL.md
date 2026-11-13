@@ -55,6 +55,6 @@ afternoon. If the owner wants a court anyway, they say "book now".
 ## Never
 
 - Never drive CourtReserve in the computer's browser, and never type the password.
-- Never edit `/workspace/pickletime-grokbot` or the engine checkout.
+- Never edit `/workspace/pickletime-grokbot`.
 - Never cancel, move or pay for a reservation.
 - Never run `go-live`, `rehearse`, `--owner-tapped` or `--ignore-ledger` without the owner's tap on that exact command.

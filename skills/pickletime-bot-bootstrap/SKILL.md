@@ -44,14 +44,11 @@ kept as it is (no reset, no overwrite); report what the doctor says about it.
 bash /workspace/pickletime-grokbot/scripts/install.sh
 ```
 
-One line per step, `ok:` or `skip:`. It installs uv, Python 3.11, PickleTime at
-its pinned commit, and Chrome for Testing into `/workspace/pickletime-desk`,
+One line per step, `ok:` or `skip:`. It installs uv, Python 3.11, the booking
+engine from this checkout, and Chrome for Testing into `/workspace/pickletime-desk`,
 and copies the config template to `/workspace/pickletime-desk/config.yaml`.
 A `FAIL:` line stops setup; post it verbatim with SETUP.md's troubleshooting
-step for it. Exception: `FAIL: could not clone PickleTime; if ... is private`
-means the engine repository is private. Do step 4 now, asking for
-`PICKLETIME_GITHUB_TOKEN` along with the login in the same card visit, then
-run `install.sh` again and continue with step 3.
+step for it.
 
 ## 3. Prove Chrome works here, without the live site
 
@@ -69,13 +66,11 @@ CourtReserve".
 Ask the owner to open the secure secret card and add:
 
 - `USERID`: the email they log in to CourtReserve with;
-- `PASSWORD`: its password;
-- `PICKLETIME_GITHUB_TOKEN`, only if step 2 said PickleTime is private: a
-  fine-grained GitHub token for that one repository with Contents read-only.
+- `PASSWORD`: its password.
 
 Tell them, before they add it: a secret on the card is visible to every Bot on
 this Grok computer, so use a CourtReserve password that is not used anywhere
-else, and a token that can do nothing but read PickleTime. Fallback, only if the card is unavailable: the file
+else. Fallback, only if the card is unavailable: the file
 `/workspace/.pickletime-secrets/courtreserve.env` (lines `USERID=...` and
 `PASSWORD=...`, mode 0600), created by the owner, never by you.
 
@@ -95,8 +90,8 @@ SETUP.md 7.1 (changing the configuration).
 
 ## 6. The receipt
 
-One message. Three plain lines first: the bot is installed (release v0.1.0,
-PickleTime commit), Chrome works on this computer, and it is in rehearsal mode
+One message. Three plain lines first: the bot is installed (release v0.1.0
+and its commit), Chrome works on this computer, and it is in rehearsal mode
 so nothing will be booked yet. Then the evidence: install lines, the doctor
 verdict, the status output, the credential readback (masked).
 

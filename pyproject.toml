@@ -1,0 +1,65 @@
+[project]
+name = "pickletime-bot"
+version = "0.1.0"
+description = "Books CourtReserve courts the moment they open, run from a Grok Bot"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "selenium>=4.27,<5",
+    "pydantic>=2.9,<3",
+    "loguru>=0.7.2,<1",
+    "python-dotenv>=1.0.1,<2",
+    "pyyaml>=6.0.1,<7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.8", "mypy>=1.13", "types-PyYAML>=6.0"]
+
+[project.scripts]
+pickletime = "pickletime.cli:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pickletime"]
+
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests/engine"]
+addopts = "-q --strict-markers"
+markers = [
+    "e2e: drives a real browser against the local fake site (needs Chrome)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "C4", "SIM", "RET", "ARG", "PTH", "S"]
+ignore = [
+    "S101",   # asserts are the point in tests
+    "SIM105", # contextlib.suppress is not always clearer
+    "RET504", # a named result before return often documents intent
+    "B008",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG001", "ARG002", "ARG005", "S105", "S106", "S108", "PTH", "E501"]
+"src/pickletime/services/booking.py" = ["E501"]  # JS payloads
+"scripts/*" = ["E501", "S603", "S607", "PTH", "BLE001"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/pickletime"]
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true

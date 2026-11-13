@@ -9,41 +9,37 @@ permissions:
   contents: read
 
 jobs:
-  checks:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Unit tests
-        run: python -m unittest discover -s tests -v
+      - name: Install
+        run: pip install -e '.[dev]'
+      - name: Lint
+        run: ruff check src tests scripts
+      - name: Types
+        run: mypy
+      - name: Tests (unit and end-to-end; the runner image ships Chrome)
+        run: pytest
       - name: Template hashes and release pins agree
         run: python scripts/check_template.py
       - name: Shell scripts parse
         run: bash -n scripts/install.sh scripts/run.sh scripts/env.sh
 
   install-and-doctor:
-    # The real thing: install into a throwaway desk and book on the fake site.
-    # PickleTime is private, so this needs a repository secret
-    # PICKLETIME_READ_TOKEN (fine-grained, PickleTime only, Contents: read).
-    # Without it the steps are skipped, not failed.
+    # The real thing: install into a throwaway desk and book on the fake site,
+    # exactly as the Grok Bot does on its first run.
     runs-on: ubuntu-latest
-    env:
-      PICKLETIME_GITHUB_TOKEN: ${{ secrets.PICKLETIME_READ_TOKEN }}
     steps:
-      - name: Note when the token is missing
-        if: env.PICKLETIME_GITHUB_TOKEN == ''
-        run: echo "::notice::PICKLETIME_READ_TOKEN is not set; skipping install and doctor"
       - uses: actions/checkout@v4
-        if: env.PICKLETIME_GITHUB_TOKEN != ''
         with:
           fetch-depth: 0
       - name: Install
-        if: env.PICKLETIME_GITHUB_TOKEN != ''
         run: PT_DESK=$RUNNER_TEMP/desk bash scripts/install.sh
       - name: Doctor with fake-site booking
-        if: env.PICKLETIME_GITHUB_TOKEN != ''
         run: |
           PT_DESK=$RUNNER_TEMP/desk USERID=ci@example.com PASSWORD=unused \
             bash scripts/run.sh doctor --full | tee doctor.out

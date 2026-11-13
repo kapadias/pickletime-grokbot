@@ -1,4 +1,4 @@
-"""PickleTime on Grok Bot: the one program a routine or the owner runs.
+"""PickleTime Bot on Grok Bot: the one program a routine or the owner runs.
 
 Always started through ``scripts/run.sh``, which puts the engine's venv and the
 paths from ``env.sh`` in place. Subcommands:
@@ -17,7 +17,8 @@ paths from ``env.sh`` in place. Subcommands:
 Why the wait lives here and not in the routine schedule: Grok Bot routines
 have been reported to start 10-37 minutes late. So the routine fires well
 before release (default 45 min) and this program holds until ``lead_seconds``
-before ``release_time``, then hands over to PickleTime, which does its own
+before ``release_time``, then hands over to the booking engine
+(``src/pickletime``), which does its own
 warm-up and fires on the second.
 
 Output is written for a chat: a few plain lines, the first one the verdict.
@@ -34,7 +35,7 @@ import subprocess
 import sys
 import time as _time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +63,17 @@ SECRETS_FILE = _env_path(
     "PT_SECRETS_FILE", "/workspace/.pickletime-secrets/courtreserve.env"
 )
 RUNS = STATE / "runs"
+CHECKOUT = Path(os.environ.get("PT_CHECKOUT", Path(__file__).resolve().parent.parent))
 MODE_FILE = STATE / "mode"
+
+
+def _checkout_commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "-C", str(CHECKOUT), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
 
 
 def read_mode() -> str:
@@ -146,7 +157,7 @@ def verdict_line(result: dict[str, Any]) -> str:
         verb = "would book" if rehearsal else "BOOKED"
         return f"{prefix}{verb} {day} at {what} ({result.get('confirmation')} confirmation)"
     if rehearsal:
-        # PickleTime reports a dry run as not booked; its detail says what it found.
+        # The engine reports a dry run as not booked; its detail says what it found.
         return f"{prefix}{day}: {result.get('detail') or 'nothing available in your window'}"
     return f"NOT BOOKED {day}: {result.get('detail') or 'nothing available in your window'}"
 
@@ -193,11 +204,11 @@ def summarize_timing(records: list[dict[str, Any]]) -> dict[str, Any]:
 # Run records
 # ---------------------------------------------------------------------------
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _record_path(started: datetime) -> Path:
-    return RUNS / f"{started.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}.json"
+    return RUNS / f"{started.astimezone(UTC):%Y%m%dT%H%M%SZ}.json"
 
 
 def _write_record(path: Path, record: dict[str, Any]) -> None:
@@ -223,7 +234,7 @@ def load_records(limit: int | None = None) -> list[dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Engine glue (imports PickleTime lazily)
+# Engine glue (imports the booking engine lazily)
 # ---------------------------------------------------------------------------
 def load_secrets_file() -> None:
     """Fallback credential source: KEY=VALUE lines in a 0600 file.
@@ -290,7 +301,7 @@ def cmd_book(args: argparse.Namespace) -> int:
         "slot": args.slot,
         "mode": mode,
         "release": os.environ.get("BOT_RELEASE"),
-        "engine_commit": os.environ.get("PICKLETIME_COMMIT"),
+        "bot_commit": _checkout_commit(),
     }
     path = _record_path(started)
 
@@ -353,7 +364,7 @@ def cmd_book(args: argparse.Namespace) -> int:
 
     # 3. Hold until shortly before release.
     # Today's release moment. A routine that starts after it runs at once:
-    # PickleTime sprints immediately when the release has passed.
+    # The engine sprints immediately when the release has passed.
     release_at = None
     if effective.release_time is not None:
         release_at = datetime.combine(local_start.date(), effective.release_time, tzinfo=tz)
@@ -383,7 +394,7 @@ def cmd_book(args: argparse.Namespace) -> int:
         sleep_until(plan.fire_at, max_wait_seconds=plan.wait_seconds + 30)
     record["engine_started_at"] = _now_utc().isoformat()
 
-    # 4. Book. PickleTime does its own warm-up, arms on release_time and sprints.
+    # 4. Book. The engine does its own warm-up, arms on release_time and sprints.
     from pickletime.bot import CourtBookingBot
 
     kwargs: dict[str, Any] = {}
@@ -468,7 +479,7 @@ def cmd_report(_args: argparse.Namespace) -> int:
 
 def cmd_status(_args: argparse.Namespace) -> int:
     print(f"mode: {read_mode()}  (rehearsal = dry runs only; live = real bookings)")
-    print(f"release: {os.environ.get('BOT_RELEASE')}  engine: {os.environ.get('PICKLETIME_COMMIT', '')[:12]}")
+    print(f"release: {os.environ.get('BOT_RELEASE')}  commit: {_checkout_commit()[:12]}")
     try:
         load_secrets_file()
         settings = _load_settings(dry_run=None, require_credentials=False)
@@ -524,7 +535,7 @@ def _check(results: list[tuple[str, str, str]], name: str, ok: bool | None, deta
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     results: list[tuple[str, str, str]] = []
-    checkout = Path(os.environ.get("PT_CHECKOUT", Path(__file__).resolve().parent.parent))
+    checkout = CHECKOUT
     release = os.environ.get("BOT_RELEASE", "")
 
     # 1. Release pin of this checkout.
@@ -541,14 +552,17 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     except (OSError, subprocess.CalledProcessError) as exc:
         _check(results, "release_pin", False, f"not a git checkout: {exc}")
 
-    # 2. Engine.
-    engine = Path(os.environ.get("PT_ENGINE", DESK / "engine/PickleTime"))
-    want = os.environ.get("PICKLETIME_COMMIT", "")
+    # 2. Engine: the venv holds the code of this checkout, not an older one.
     try:
-        got = subprocess.run(["git", "-C", str(engine), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        import pickletime  # noqa: F401
+        import pickletime
 
-        _check(results, "engine", got == want, f"PickleTime {got[:12]} (pinned {want[:12]}), Python {sys.version.split()[0]}")
+        installed = (Path(sys.prefix) / ".bot-commit").read_text(encoding="utf-8").strip()
+        want = _checkout_commit()
+        _check(
+            results, "engine", installed == want,
+            f"booking engine {pickletime.__version__} from {installed[:12]} (checkout {want[:12]}), "
+            f"Python {sys.version.split()[0]}" + ("" if installed == want else "; run scripts/install.sh"),
+        )
     except Exception as exc:
         _check(results, "engine", False, f"not installed: {exc}; run scripts/install.sh")
 
@@ -614,11 +628,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _fake_site_rehearsal() -> tuple[bool, str]:
-    """Book a court on PickleTime's own fake CourtReserve with the installed Chrome."""
-    engine = Path(os.environ.get("PT_ENGINE", DESK / "engine/PickleTime"))
-    sys.path.insert(0, str(engine / "tests"))
+    """Book a court on the test suite's fake CourtReserve with the installed Chrome."""
+    sys.path.insert(0, str(CHECKOUT / "tests" / "engine"))
     try:
         from fake_site import FakeCourtReserve, SiteState  # type: ignore[import-not-found]
+
         from pickletime.bot import CourtBookingBot
         from pickletime.ledger import NullLedger
         from pickletime.settings import BookingSettings, Credentials, RuntimeSettings, Settings
@@ -626,13 +640,13 @@ def _fake_site_rehearsal() -> tuple[bool, str]:
     except Exception as exc:
         return False, f"cannot load the fake site: {exc}"
 
-    base = dict(
-        search_start_time="10:00 AM", search_end_time="12:00 PM", preferred_durations=[60, 30],
-        booking_priority="duration", priority_time_slots=["11:30 AM"], headless=True,
-        webdriver_timeout=10, page_load_timeout=30, poll_interval_ms=50, sprint_seconds=8,
-        max_retries=0, retry_interval=0, chrome_binary=os.environ.get("CHROME_BIN"),
-        chrome_driver_path=os.environ.get("CHROME_DRIVER_PATH"),
-    )
+    base = {
+        "search_start_time": "10:00 AM", "search_end_time": "12:00 PM", "preferred_durations": [60, 30],
+        "booking_priority": "duration", "priority_time_slots": ["11:30 AM"], "headless": True,
+        "webdriver_timeout": 10, "page_load_timeout": 30, "poll_interval_ms": 50, "sprint_seconds": 8,
+        "max_retries": 0, "retry_interval": 0, "chrome_binary": os.environ.get("CHROME_BIN"),
+        "chrome_driver_path": os.environ.get("CHROME_DRIVER_PATH"),
+    }
     state = SiteState(slots={"11:30 AM": ["30 minutes", "1 hour"]})
     creds = Credentials(username=state.username, password=state.password)
     runtime = RuntimeSettings(

@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 

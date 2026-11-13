@@ -13,13 +13,12 @@ PT_DESK="${PT_DESK:-/workspace/pickletime-desk}"
 
 PT_OPT="$PT_DESK/opt"
 PT_VENV="$PT_DESK/venv"
-PT_ENGINE="$PT_DESK/engine/PickleTime"
 PT_STATE="$PT_DESK/state"
 PT_LOGS="$PT_DESK/logs"
 PT_SECRETS_FILE="${PT_SECRETS_FILE:-/workspace/.pickletime-secrets/courtreserve.env}"
 
-export PT_CHECKOUT PT_DESK PT_OPT PT_VENV PT_ENGINE PT_STATE PT_LOGS PT_SECRETS_FILE
-export BOT_RELEASE PICKLETIME_REPO PICKLETIME_COMMIT CHROME_VERSION PYTHON_VERSION
+export PT_CHECKOUT PT_DESK PT_OPT PT_VENV PT_STATE PT_LOGS PT_SECRETS_FILE
+export BOT_RELEASE CHROME_VERSION PYTHON_VERSION
 
 # uv and its Python downloads stay in /workspace so they survive a sleep.
 export UV_INSTALL_DIR="$PT_OPT/bin"
@@ -27,7 +26,7 @@ export UV_PYTHON_INSTALL_DIR="$PT_OPT/python"
 export UV_CACHE_DIR="$PT_OPT/cache/uv"
 export PATH="$PT_OPT/bin:$PATH"
 
-# PickleTime reads these.
+# The booking engine reads these.
 export CHROME_BIN="$PT_OPT/chrome/chrome"
 export CHROME_DRIVER_PATH="$PT_OPT/chromedriver/chromedriver"
 export PICKLETIME_CONFIG="$PT_DESK/config.yaml"
