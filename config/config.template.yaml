@@ -1,0 +1,108 @@
+# PickleTime on Grok Bot: your booking configuration.
+#
+# install.sh copies this file to /workspace/pickletime-desk/config.yaml once and
+# never overwrites it. Edit THAT copy (ask the bot: "change my booking window to
+# ..."); this template only seeds a new desk.
+#
+# Credentials never live here: USERID and PASSWORD come from Grok Bot's secure
+# secret card. Every key is validated; run "show my booking status" to see what
+# it resolves to and the next play dates.
+#
+# Differences from the Cloud Run config.yaml in PickleTime:
+#   * gcp_notifications_enabled is false - the Grok chat is the alert channel.
+#   * the "slot race" comments describe the Grok routine, not Cloud Scheduler.
+
+# --- facility --------------------------------------------------------------
+organization_id: 13233
+sport_id: 16984
+sport_name: "Pickleball"
+court_type: "Pickleball"
+# Appears in the grid slot URLs as courtTypeId. Optional — slot matching keys on
+# the start time and scheduler id — but it makes the fast path hit.
+court_type_id: 9
+
+# --- what to book ----------------------------------------------------------
+timezone: "America/Los_Angeles"
+days_in_advance: 8
+# Evening play. The window has to span every slot you want; the ordering below
+# decides which is tried first, not this.
+search_start_time: "5:30 PM"
+search_end_time: "7:30 PM"
+time_increment: 30
+preferred_durations: [60, 30]
+booking_priority: "duration"
+
+# Tried in exactly this order, before anything else in the window.
+priority_time_slots:
+  - "6:30 PM"
+  - "7:00 PM"
+  - "7:30 PM"
+  - "5:30 PM"
+# 6:00 PM is inside the window but unlisted, so it is the last resort — better
+# than going home empty-handed. Narrow the window to 6:30-7:30 PM to exclude it.
+
+# --- which days to play ----------------------------------------------------
+# A 2-2-3 childcare rotation repeats every 14 days, which a weekly schedule
+# cannot express. So the Grok routine fires DAILY and this decides whether the court date it
+# resolved is one to act on; days that are not get skipped before Chrome starts.
+#
+# Day 0 is Mon 24 Aug 2026, the Monday of a "week A". Free days in the rotation
+# are Wed+Thu in week A and Mon/Tue/Fri/Sat/Sun in week B; intersected with the
+# days you can actually play (Mon, Thu, Fri evenings, plus Saturday mornings):
+#
+#     offset  3   week A   Thursday    evening
+#     offset  7   week B   Monday      evening
+#     offset 11   week B   Friday      evening
+#     offset 12   week B   Saturday    morning — see weekday_overrides
+#
+# Free but unused: offset 2 (Wed), 8 (Tue), 13 (Sun). Add them here if that
+# changes; each is a genuinely free evening.
+#
+# Check it any time with:  pickletime --print-config
+rotation:
+  anchor_date: "08/24/2026"
+  cycle_days: 14
+  play_on_offsets: [3, 7, 11, 12]
+
+# Saturday is a morning, not an evening. The rotation decides which *dates* are
+# free; this decides what to want on the day, which is a property of the weekday
+# rather than of the cycle. Anything not listed here uses the window above.
+weekday_overrides:
+  Saturday:
+    search_start_time: "9:00 AM"
+    search_end_time: "10:30 AM"
+    priority_time_slots:
+      - "9:00 AM"
+      - "10:00 AM"
+      - "9:30 AM"
+      - "10:30 AM"
+
+# --- slot race -------------------------------------------------------------
+# The Grok "book" routine fires well before this (default 45 min, because Grok
+# routines can start late); the bot holds until 3 minutes before release_time,
+# warms up Chrome and fires the instant the clock reaches it. If slots at your
+# club open at a different time, change this AND move the routine to match.
+release_time: "12:00 PM"
+sprint_seconds: 25
+# How long past 12:00 to keep trying for a date that has not appeared yet. A
+# club's "noon" is its server's noon and can run a minute or two late; giving up
+# early forfeits the booking over a clock difference. Costs nothing on a normal
+# day, because the date is there on the first reload.
+release_grace_seconds: 180
+poll_interval_ms: 150
+max_retries: 1
+retry_interval: 5
+
+# --- browser ---------------------------------------------------------------
+headless: true
+webdriver_timeout: 15
+page_load_timeout: 30
+block_images: true
+
+# --- safety ----------------------------------------------------------------
+dry_run: false
+
+# --- notifications ---------------------------------------------------------
+# Off on Grok Bot: each run's result is posted in the Bot's chat, and Grok's
+# own notifications deliver it to your phone.
+gcp_notifications_enabled: false

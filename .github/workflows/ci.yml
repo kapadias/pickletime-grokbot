@@ -1,0 +1,39 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Template hashes and release pins agree
+        run: python scripts/check_template.py
+      - name: Shell scripts parse
+        run: bash -n scripts/install.sh scripts/run.sh scripts/env.sh
+
+  install-and-doctor:
+    # The real thing: install into a throwaway desk and book on the fake site.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install
+        run: PT_DESK=$RUNNER_TEMP/desk bash scripts/install.sh
+      - name: Doctor with fake-site booking
+        run: |
+          PT_DESK=$RUNNER_TEMP/desk USERID=ci@example.com PASSWORD=unused \
+            bash scripts/run.sh doctor --full | tee doctor.out
+          grep -q '^\[PASS\] fake_site_booking' doctor.out

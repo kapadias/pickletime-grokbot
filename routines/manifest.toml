@@ -1,0 +1,38 @@
+# PickleTime Bot routine manifest (schema 1).
+#
+# Times are in the Bot's Timezone setting, which SETUP.md has you set to the
+# facility timezone in config.yaml (America/Los_Angeles). One Grok routine per
+# entry; the prompt is copied exactly, with {slot} filled in.
+schema_version = 1
+
+[[routine]]
+id = "book"
+required = true
+# release_time (12:00 PM) minus 45 minutes. Grok routines have been reported
+# to start 10-37 minutes late, so the routine starts early and the bot itself
+# holds until 3 minutes before release. Move it after reading "show routine
+# timing" (SETUP.md 7), never closer than release_time minus 15 minutes.
+slot = "11:15"
+days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+why_daily = "the 14-day rotation cannot be expressed weekly; off-days end in seconds with 'quiet'"
+prompt = "Run bash /workspace/pickletime-grokbot/scripts/run.sh book --slot {slot} and post its output verbatim."
+# If 'show routine timing' reports runs cut off, switch to this prompt and add
+# the report routine below (SETUP.md 8):
+prompt_detached = "Run bash /workspace/pickletime-grokbot/scripts/run.sh book --slot {slot} --detach and post its output verbatim."
+posts = "always one or two lines: quiet on off-days, the booking verdict on play days"
+
+[[routine]]
+id = "report"
+required = false   # only with prompt_detached
+slot = "12:30"
+days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+prompt = "Run bash /workspace/pickletime-grokbot/scripts/run.sh report and post its output verbatim."
+posts = "today's verdict, or UNAVAILABLE when the booking run was cut off"
+
+[[routine]]
+id = "health"
+required = false
+slot = "18:05"
+days = ["Sun"]
+prompt = "Run bash /workspace/pickletime-grokbot/scripts/run.sh doctor --full and post its output verbatim."
+posts = "the doctor's checks: proves Chrome still starts and the credentials are still there before the week's bookings"
