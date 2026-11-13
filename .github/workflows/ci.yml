@@ -25,14 +25,25 @@ jobs:
 
   install-and-doctor:
     # The real thing: install into a throwaway desk and book on the fake site.
+    # PickleTime is private, so this needs a repository secret
+    # PICKLETIME_READ_TOKEN (fine-grained, PickleTime only, Contents: read).
+    # Without it the steps are skipped, not failed.
     runs-on: ubuntu-latest
+    env:
+      PICKLETIME_GITHUB_TOKEN: ${{ secrets.PICKLETIME_READ_TOKEN }}
     steps:
+      - name: Note when the token is missing
+        if: env.PICKLETIME_GITHUB_TOKEN == ''
+        run: echo "::notice::PICKLETIME_READ_TOKEN is not set; skipping install and doctor"
       - uses: actions/checkout@v4
+        if: env.PICKLETIME_GITHUB_TOKEN != ''
         with:
           fetch-depth: 0
       - name: Install
+        if: env.PICKLETIME_GITHUB_TOKEN != ''
         run: PT_DESK=$RUNNER_TEMP/desk bash scripts/install.sh
       - name: Doctor with fake-site booking
+        if: env.PICKLETIME_GITHUB_TOKEN != ''
         run: |
           PT_DESK=$RUNNER_TEMP/desk USERID=ci@example.com PASSWORD=unused \
             bash scripts/run.sh doctor --full | tee doctor.out

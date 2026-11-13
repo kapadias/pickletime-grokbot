@@ -46,7 +46,10 @@ all under `/workspace/pickletime-desk`:
 - `config.yaml`, copied once from `config/config.template.yaml`, and the mode `rehearsal`.
 
 A `FAIL:` line stops setup. Post it verbatim with the matching entry from
-section 11.
+section 11. One failure is expected when PickleTime is a private repository:
+`FAIL: could not clone PickleTime; if ... is private, add a read-only GitHub
+token as PICKLETIME_GITHUB_TOKEN ...`. Then do section 4 now (all three
+secrets in one visit to the card) and run `install.sh` again.
 
 ## 3. Prove Chrome works here
 
@@ -72,9 +75,12 @@ with no live site involved. Expect:
 | --- | --- |
 | `USERID` | the email you log in to CourtReserve with |
 | `PASSWORD` | its password |
+| `PICKLETIME_GITHUB_TOKEN` | only if `kapadias/PickleTime` is private: a fine-grained GitHub token with access to that one repository and **Contents: Read-only**, nothing else (GitHub, Settings, Developer settings, Fine-grained tokens) |
 
 A secret on the card is visible to every Bot on the Grok computer, so use a
-CourtReserve password you use nowhere else. Fallback if the card is
+CourtReserve password you use nowhere else, and a token that can only read
+PickleTime. The token is used only by `install.sh` to clone and fetch the
+engine; it is never written to disk. Fallback if the card is
 unavailable: create `/workspace/.pickletime-secrets/courtreserve.env` yourself,
 mode 0600, with the two lines `USERID=...` and `PASSWORD=...`. The card wins
 when both exist.

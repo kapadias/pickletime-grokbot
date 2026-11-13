@@ -95,11 +95,31 @@ fi
 # ---------------------------------------------------------------------------
 # 2. The booking engine, at the pinned commit
 # ---------------------------------------------------------------------------
+# PickleTime may be a private repository. Then the owner adds a read-only
+# GitHub token as PICKLETIME_GITHUB_TOKEN on the secret card. It is passed to
+# git through the environment for these two commands only: never written to
+# .git/config, never on a command line.
+engine_git() {
+  if [ -n "${PICKLETIME_GITHUB_TOKEN:-}" ]; then
+    local basic
+    basic="$(printf 'x-access-token:%s' "$PICKLETIME_GITHUB_TOKEN" | base64 | tr -d '\n')"
+    GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 \
+      GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+      GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic" git "$@"
+  else
+    GIT_TERMINAL_PROMPT=0 git "$@"
+  fi
+}
+private_hint="if $PICKLETIME_REPO is private, add a read-only GitHub token as PICKLETIME_GITHUB_TOKEN with the secret card (SETUP.md 4)"
+
 if [ ! -d "$PT_ENGINE/.git" ]; then
-  git clone -q "$PICKLETIME_REPO" "$PT_ENGINE" || fail "could not clone $PICKLETIME_REPO"
+  engine_git clone -q "$PICKLETIME_REPO" "$PT_ENGINE" 2>/dev/null \
+    || fail "could not clone PickleTime; $private_hint"
 fi
 if [ "$(git -C "$PT_ENGINE" rev-parse HEAD 2>/dev/null)" != "$PICKLETIME_COMMIT" ]; then
-  git -C "$PT_ENGINE" fetch -q origin "$PICKLETIME_COMMIT" 2>/dev/null || git -C "$PT_ENGINE" fetch -q origin
+  engine_git -C "$PT_ENGINE" fetch -q origin "$PICKLETIME_COMMIT" 2>/dev/null \
+    || engine_git -C "$PT_ENGINE" fetch -q origin 2>/dev/null \
+    || fail "could not fetch PickleTime; $private_hint"
   git -C "$PT_ENGINE" -c advice.detachedHead=false checkout -q "$PICKLETIME_COMMIT" \
     || fail "pinned commit $PICKLETIME_COMMIT is not in $PICKLETIME_REPO"
 fi
