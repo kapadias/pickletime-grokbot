@@ -3,7 +3,7 @@ name: pickletime-bot-operations
 description: Standing instructions for PickleTime Bot after setup - what each owner phrase runs (turn on the routine, show routine timing, go live, status, change my booking window, book now, retire Cloud Run), how routine output is posted, which commands need the owner's tap, and what to do when a run fails or a routine is late. Use for every request after the first run.
 license: MIT
 metadata:
-  version: "0.1.1"
+  version: "0.1.2"
   category: booking
 ---
 

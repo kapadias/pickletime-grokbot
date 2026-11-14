@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.2
+
+The first live capture showed the new layout: a single-page portal (Ant Design) whose slots come from `ReadConsolidated` JSON, open slots as `[data-testid=consolidated-reserve-slot]`, and a booking form with a duration combobox, a disclosure checkbox and a Confirm button. It left three gaps, which this capture fills:
+
+- Slot map: the grid is scrolled top to bottom and every slot element is paired with the time label on its row, so evening slots below the fold are included.
+- Date stepping looks for "next" only inside the date toolbar (the one with Today), re-finds it after every click, and records the toolbar's controls and the label after each step. The live run stopped after one day.
+- The booking form's duration list is opened and its options recorded, then closed without choosing; checkbox and expanded states are recorded.
+- Every `data-testid` on the page, with counts and sample text.
+- `/Date(ms)/` timestamps and JSON inside query strings (such as `jsonData`) are kept in scrubbed form.
+- The summary leads with what the engine rewrite needs, leaves routine requests out (they stay in capture.json) and allows 48,000 characters.
+- Tests: a fake of the new portal (`tests/engine/fake_portal.py`) built from the capture, including a decoy "next" control outside the toolbar.
+
 ## 0.1.1
 
 - The first live run showed Lifetime Sunnyvale's bookings page on a new CourtReserve layout without the Kendo scheduler the engine reads. Booking cannot work on it until the engine is updated for that layout; this release gathers what that needs.

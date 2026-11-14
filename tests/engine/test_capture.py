@@ -7,6 +7,7 @@ output files.
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from pathlib import Path
 
@@ -138,3 +139,59 @@ def test_a_failed_date_step_still_captures_a_booking_form(chrome_paths, make_set
     assert steps["open_slot"]["ok"], result["steps"]
     assert result.get("slot_controls")
     assert state.bookings == []
+
+
+# -- against the new portal layout --------------------------------------------------
+@pytest.mark.e2e
+def test_capture_on_the_new_portal_layout(chrome_paths, make_settings, tmp_path: Path):
+    """Everything the engine rewrite needs, gathered from a portal-shaped page."""
+    from fake_portal import FakePortal, PortalState
+
+    binary, driver = chrome_paths
+    overrides = {"chrome_binary": binary, "days_in_advance": 8}
+    if driver:
+        overrides["chrome_driver_path"] = driver
+    target = make_settings(**overrides).booking.target_date()
+    state = PortalState(today=target - timedelta(days=8),
+                        open_slots={target: {"6:30 PM": 2, "7:00 PM": 1, "9:00 AM": 3}})
+
+    with FakePortal(state) as site:
+        settings = make_settings(base_url=site.base_url, **overrides)
+        result = capture_site(settings, tmp_path / "cap", open_slot=True)
+
+    steps = {s["step"]: s for s in result["steps"]}
+    assert steps["login"]["ok"], result["steps"]
+    assert "legacy Kendo grid present: False" in steps["bookings_page"]["detail"]
+
+    # Stepped all 8 days with the toolbar's own control, not the decoy carousel.
+    assert steps["date_nav"]["ok"], steps["date_nav"]
+    assert result["date_nav"]["how"] == "toolbar control naming next"
+    assert len(result["date_nav"]["trail"]) == 8
+    assert state.reads[-1] == target.isoformat()
+
+    # Evening slots sit below the fold; the map must still pair them with times.
+    times = {m["time"] for m in result["slot_map"] if m["testid"] == "consolidated-reserve-slot"}
+    assert {"9:00 AM", "6:30 PM", "7:00 PM"} <= times, result["slot_map"]
+
+    # One form opened; its duration list read; nothing booked.
+    assert steps["open_slot"]["ok"], result["steps"]
+    assert steps["duration_list"]["ok"], result["steps"]
+    assert [o["text"] for o in result["duration_list"]["options"]] == [
+        "30 minutes", "1 hour", "1 hour & 30 minutes", "2 hours"]
+    controls = result["slot_controls"]
+    assert any(c.get("testid") == "reservation-mobile-submit-btn" for c in controls)
+    assert any(c.get("role") == "checkbox" and c.get("checked") == "false" for c in controls)
+    assert state.bookings == []
+
+    assert "consolidated-reserve-slot" in result["testids"]
+    reads = [r for r in result["network"] if "ReadConsolidated" in r["url"]]
+    assert reads and "«json:" in reads[-1]["url"] and "startDate" in reads[-1]["url"]
+    assert "/Date(" in json.dumps(reads[-1]["shape"])
+
+    written = (tmp_path / "cap" / "summary.txt").read_text(encoding="utf-8")
+    assert "player@example.com" not in written and "correct-horse" not in written
+    assert written.index("== slot map") < written.index("== data requests")
+
+
+def test_dotnet_dates_survive_the_shape():
+    assert json_shape({"Start": "/Date(1763136000000)/"}) == {"Start": "/Date(1763136000000)/"}

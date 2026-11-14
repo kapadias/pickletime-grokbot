@@ -112,7 +112,10 @@ def scrub_url(url: str | None) -> str:
     path = _LONG_DIGITS.sub("«num»", parts.path)
     query = []
     for key, value in parse_qsl(parts.query, keep_blank_values=True):
-        if _EMAIL.search(value):
+        if value[:1] in "{[" and _json_or_none(value) is not None:
+            shape = json.dumps(json_shape(_json_or_none(value)), separators=(",", ":"))
+            query.append(f"{key}=«json:{shape[:300]}»")
+        elif _EMAIL.search(value):
             query.append(f"{key}=«v»")
         elif (
             re.fullmatch(r"\d{1,6}|true|false", value)
@@ -126,11 +129,20 @@ def scrub_url(url: str | None) -> str:
     return f"{prefix}{path}" + (f"?{'&'.join(query)}" if query else "")
 
 
+def _json_or_none(text: str) -> Any:
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
 _URL_DATETIME = re.compile(
     r"\d{1,2}/\d{1,2}/\d{4}( \d{1,2}:\d{2}( ?[AP]M)?)?|\d{4}-\d{2}-\d{2}([T ][\d:.]+)?(Z|[+-]\d{2}:?\d{2})?",
     re.I,
 )
-_DATEISH = re.compile(r"^\d{4}-\d{2}-\d{2}([T ][\d:.]+)?(Z|[+-]\d{2}:?\d{2})?$|^\d{1,2}/\d{1,2}/\d{4}")
+_DATEISH = re.compile(
+    r"^\d{4}-\d{2}-\d{2}([T ][\d:.]+)?(Z|[+-]\d{2}:?\d{2})?$|^\d{1,2}/\d{1,2}/\d{4}|^/Date\(-?\d+([+-]\d{4})?\)/$"
+)
 
 
 def json_shape(value: Any, *, depth: int = 0, max_depth: int = 7) -> Any:
@@ -203,7 +215,7 @@ function walk(el, depth) {
     if (SKIP.has(child.tagName)) continue;
     const s = sig(child);
     if (s === prevSig) { run++; } else { run = 0; prevSig = s; }
-    if (run >= 3) { if (run === 3) kids.push({collapsed: true, like: s}); else kids[kids.length-1].more = (kids[kids.length-1].more || 1) + 1; continue; }
+    if (run >= 5) { if (run === 5) kids.push({collapsed: true, like: s}); else kids[kids.length-1].more = (kids[kids.length-1].more || 1) + 1; continue; }
     const k = walk(child, depth + 1);
     if (k) kids.push(k);
   }
@@ -215,33 +227,46 @@ function shadowOf(el) { return !!el.shadowRoot; }
 return {outline: walk(root, 0), nodes: count, truncated: count >= maxNodes};
 """
 
-#: Finds the toolbar's date label and its next-day control.
+#: Finds the date label, the toolbar around it, and the toolbar's next-day control.
+#: Searching only inside the toolbar matters: the live portal has other "next"
+#: controls (announcement carousels, date-picker months) that a page-wide search
+#: picked after the first step.
 _DATE_NAV_JS = r"""
 const DATE_RE = /(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}/;
-const all = Array.from(document.querySelectorAll('body *')).filter(e => e.offsetParent !== null);
-const labels = all.filter(e => DATE_RE.test(e.textContent || '') && (e.textContent || '').length < 60)
+const visible = e => e.offsetParent !== null;
+const outsideDialog = e => !e.closest('[role=dialog],[aria-modal=true]');
+const labels = Array.from(document.querySelectorAll('body *'))
+  .filter(e => visible(e) && outsideDialog(e) && DATE_RE.test(e.textContent || '') && (e.textContent || '').length < 60)
   .sort((a, b) => (a.textContent.length - b.textContent.length));
 const label = labels[0] || null;
-let next = null, how = null;
-// Only controls that cannot navigate away: buttons, role=button, or links to "#".
-const safe = e => e.offsetParent !== null && !e.closest('header,nav,[role=navigation],[role=banner]') &&
-  (e.tagName !== 'A' || !e.getAttribute('href') || /^(#|javascript:)/.test(e.getAttribute('href')));
-const aria = Array.from(document.querySelectorAll('button,a,[role=button]'))
-  .filter(e => safe(e) && /next|forward/i.test((e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '') + ' ' + (typeof e.className === 'string' ? e.className : '')));
-if (aria.length) { next = aria[0]; how = 'aria/title/class mentions next'; }
-if (!next && label) {
+const controls = root => Array.from(root.querySelectorAll('button,a,[role=button]')).filter(e => visible(e) &&
+  (e.tagName !== 'A' || !e.getAttribute('href') || /^(#|javascript:)/.test(e.getAttribute('href'))));
+let toolbar = null;
+if (label) {
   let box = label;
-  for (let i = 0; i < 4 && box && !next; i++) {
+  for (let i = 0; i < 6 && box; i++) {
     box = box.parentElement;
-    if (!box) break;
-    const btns = Array.from(box.querySelectorAll('button,a,[role=button]')).filter(e => safe(e) && !e.contains(label) && !label.contains(e));
-    const after = btns.filter(b => label.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING);
-    const before = btns.filter(b => label.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    if (before.length >= 1 && /today/i.test(btns[0].textContent || '') && btns.length >= 3) { next = btns[2]; how = 'third control after Today'; }
-    else if (after.length) { next = after[after.length - 1]; how = 'control just before the date label'; }
+    if (box && controls(box).some(c => /^\s*today\s*$/i.test(c.textContent || ''))) { toolbar = box; break; }
   }
 }
-return {label: label, labelText: label ? label.textContent.trim().slice(0, 60) : null, next: next, how: how};
+const scope = toolbar || (label ? label.parentElement : null);
+const describe = e => ({tag: e.tagName.toLowerCase(), aria: e.getAttribute('aria-label') || '', title: e.getAttribute('title') || '',
+  testid: e.getAttribute('data-testid') || '', cls: typeof e.className === 'string' ? e.className.slice(0, 120) : '',
+  text: (e.innerText || '').trim().slice(0, 40), disabled: !!e.disabled || e.getAttribute('aria-disabled') === 'true'});
+let next = null, how = null;
+const MENTIONS = /next|forward|right/i;
+if (scope) {
+  const cs = controls(scope).filter(c => !c.contains(label) && !label.contains(c));
+  const named = cs.filter(c => MENTIONS.test([c.getAttribute('aria-label'), c.getAttribute('title'), c.getAttribute('data-testid'),
+    typeof c.className === 'string' ? c.className : '', c.innerHTML.slice(0, 300)].join(' ')));
+  if (named.length) { next = named[0]; how = 'toolbar control naming next'; }
+  else {
+    const today = cs.find(c => /^\s*today\s*$/i.test(c.textContent || ''));
+    if (today) { const i = cs.indexOf(today); if (cs[i + 2]) { next = cs[i + 2]; how = 'second control after Today'; } }
+  }
+}
+return {label: label, labelText: label ? label.textContent.trim().slice(0, 60) : null, next: next, how: how,
+  toolbar: toolbar, toolbarControls: scope ? controls(scope).map(describe) : []};
 """
 
 #: Candidate open slots inside the main content (not the header/nav/toolbar).
@@ -283,12 +308,74 @@ for (const e of root.querySelectorAll('select,input,textarea,button,[role=combob
   const item = {tag: e.tagName.toLowerCase(), type: e.getAttribute('type'), id: e.id, name: e.getAttribute('name'),
     role: e.getAttribute('role'), cls: e.getAttribute('class'), testid: e.getAttribute('data-testid'),
     label: (e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label') || '',
-    text: (e.innerText || '').slice(0, 80), disabled: e.disabled || e.getAttribute('aria-disabled') === 'true'};
+    text: (e.innerText || '').slice(0, 80), disabled: e.disabled || e.getAttribute('aria-disabled') === 'true',
+    checked: e.getAttribute('aria-checked') || (e.type === 'checkbox' ? String(e.checked) : ''),
+    expanded: e.getAttribute('aria-expanded') || ''};
   if (e.tagName === 'SELECT') item.options = Array.from(e.options).map(o => ({value: o.value, text: o.text}));
   out.push(item);
   if (out.length > 80) break;
 }
 return out;
+"""
+
+#: Every data-testid on the page: count, tag, role and a sample of its text.
+_TESTIDS_JS = r"""
+const out = {};
+for (const e of document.querySelectorAll('[data-testid]')) {
+  const id = e.getAttribute('data-testid');
+  const item = out[id] || (out[id] = {n: 0, tag: e.tagName.toLowerCase(), role: e.getAttribute('role') || '', text: []});
+  item.n++;
+  const t = (e.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 50);
+  if (t && item.text.length < 2 && !item.text.includes(t)) item.text.push(t);
+}
+return out;
+"""
+
+#: The scrollable grid holding the slots, or the page itself.
+_GRID_SCROLLER_JS = r"""
+const first = document.querySelector('[data-testid*=slot i]') || document.querySelector('[data-testid*=scheduler i]');
+let el = first;
+while (el && el !== document.body) {
+  const cs = getComputedStyle(el);
+  if (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 4) return el;
+  el = el.parentElement;
+}
+return document.scrollingElement;
+"""
+
+#: Visible slot-like elements, each paired with the time label on its row.
+_SLOT_MAP_JS = r"""
+const TIME = /^\s*\d{1,2}:\d{2}\s?(AM|PM)\s*$/i;
+const notDialog = e => !e.closest('[role=dialog],[aria-modal=true],header,nav');
+const shown = e => { const r = e.getBoundingClientRect(); return r.height > 0 && r.bottom > 0 && r.top < innerHeight; };
+const labels = Array.from(document.querySelectorAll('body *')).filter(e => notDialog(e) && shown(e) &&
+  e.children.length === 0 && TIME.test(e.textContent || '')).map(e => ({t: e.textContent.trim(), top: e.getBoundingClientRect().top}));
+const slots = Array.from(document.querySelectorAll('[data-testid*=slot i]')).filter(e => notDialog(e) && shown(e));
+const out = [];
+for (const e of slots) {
+  const r = e.getBoundingClientRect();
+  const mid = r.top + r.height / 2;
+  let best = null;
+  for (const l of labels) if (l.top <= mid + 2 && (!best || l.top > best.top)) best = l;
+  out.push({time: best ? best.t : null, testid: e.getAttribute('data-testid'), role: e.getAttribute('role') || '',
+    text: (e.innerText || '').trim().slice(0, 40), aria: e.getAttribute('aria-label') || '',
+    cls: typeof e.className === 'string' ? e.className.slice(0, 80) : '',
+    data: Object.fromEntries(Object.entries(e.dataset || {}).slice(0, 8))});
+}
+return {labels: labels.length, slots: out};
+"""
+
+#: After opening a combobox: the popup list and its options.
+_LISTBOX_JS = r"""
+const shown = e => { const r = e.getBoundingClientRect(); return r.height > 0 && getComputedStyle(e).visibility !== 'hidden'; };
+const boxes = Array.from(document.querySelectorAll('[role=listbox],.ant-select-dropdown,[class*=dropdown i],[class*=popover i],[class*=menu i]'))
+  .filter(e => shown(e) && e.querySelector('[role=option],li,[class*=option i],[class*=item i]'));
+const box = boxes.find(b => b.getAttribute('role') === 'listbox') || boxes[0] || null;
+const options = box ? Array.from(box.querySelectorAll('[role=option],[class*=option i],li')).filter(shown).slice(0, 20).map(o => ({
+  tag: o.tagName.toLowerCase(), role: o.getAttribute('role') || '', cls: typeof o.className === 'string' ? o.className.slice(0, 80) : '',
+  testid: o.getAttribute('data-testid') || '', selected: o.getAttribute('aria-selected') || '',
+  text: (o.innerText || '').trim().slice(0, 40), value: o.getAttribute('data-value') || o.getAttribute('value') || ''})) : [];
+return {box: box, options: options};
 """
 
 _DANGEROUS_BUTTON = re.compile(r"\b(save|confirm|submit|pay|checkout|book|reserve|purchase|complete)\b", re.I)
@@ -302,7 +389,10 @@ def _scrub_outline(node: dict[str, Any] | None) -> dict[str, Any] | None:
     if node is None:
         return None
     if node.get("collapsed"):
-        return {"collapsed": True, "like": _scrub_attr_value(node.get("like", "")), "more": node.get("more", 1)}
+        tag, _, rest = str(node.get("like", "")).partition("|")
+        cls, _, role = rest.partition("|")
+        like = tag.lower() + "".join(f".{c}" for c in cls.split()[:3]) + (f"[role={role}]" if role else "")
+        return {"collapsed": True, "like": _scrub_attr_value(like), "more": node.get("more", 1)}
     attrs = {}
     for key, value in (node.get("attrs") or {}).items():
         if key == "href":
@@ -529,45 +619,56 @@ def capture_site(
             _scrub_outline(driver.execute_script(_OUTLINE_JS, c, 25).get("outline")) for c in today_candidates[:5]
         ]
 
-        # 3. Step forward to the target date.
+        # 3. Step forward to the target date, inside the date toolbar only.
         days = (target - now_in(booking.tz).date()).days
-        moved = 0
         nav = driver.execute_script(_DATE_NAV_JS)
-        result["date_nav"] = {"label": scrub_text(nav.get("labelText")), "how": nav.get("how")}
+        result["date_nav"] = {
+            "label": scrub_text(nav.get("labelText")),
+            "how": nav.get("how"),
+            "toolbar_found": nav.get("toolbar") is not None,
+            "toolbar_controls": [_scrub_control(c) for c in nav.get("toolbarControls") or []],
+            "trail": [],
+        }
+        if nav.get("toolbar") is not None:
+            result["toolbar"] = _scrub_outline(driver.execute_script(_OUTLINE_JS, nav["toolbar"], 120).get("outline"))
         if days <= 0:
             step("date_nav", True, "target date is today; no stepping needed")
-        elif nav.get("next") is not None:
+        elif nav.get("next") is None:
+            step("date_nav", False, f"no next-day control found in the toolbar (wanted {days} day(s) ahead)")
+        else:
             page = urlsplit(driver.current_url).path
+            moved, reason = 0, ""
             for _ in range(days):
-                before = driver.execute_script(_DATE_NAV_JS).get("labelText")
-                try:
-                    driver.execute_script("arguments[0].click()", nav["next"])
-                except Exception:  # noqa: BLE001 - element went stale after a re-render
-                    nav = driver.execute_script(_DATE_NAV_JS)
-                    if nav.get("next") is None:
-                        break
-                    driver.execute_script("arguments[0].click()", nav["next"])
+                nav = driver.execute_script(_DATE_NAV_JS)  # fresh each step: the toolbar re-renders
+                before = nav.get("labelText")
+                if nav.get("next") is None:
+                    reason = "next control disappeared"
+                    break
+                driver.execute_script("arguments[0].click()", nav["next"])
+
                 def label_changed(previous: str | None = before) -> bool:
                     return bool(driver.execute_script(_DATE_NAV_JS).get("labelText") != previous)
 
-                changed = waiter.until(label_changed, timeout=6)
+                changed = waiter.until(label_changed, timeout=8)
                 if urlsplit(driver.current_url).path != page:
                     driver.get(booking.bookings_url)
                     _settle(driver)
-                    step("date_nav_guard", False, "the next-day control navigated away; went back to the bookings page")
-                    moved = -1
+                    reason = "the next control navigated away; went back to the bookings page"
                     break
+                after = driver.execute_script(_DATE_NAV_JS).get("labelText")
+                result["date_nav"]["trail"].append(scrub_text(after))
                 if not changed:
+                    reason = f"label stayed {scrub_text(before)!r} for 8s after a click"
                     break
-                nav = driver.execute_script(_DATE_NAV_JS)
                 moved += 1
             label = driver.execute_script(_DATE_NAV_JS).get("labelText")
-            if moved >= 0:
-                step("date_nav", moved == days,
-                     f"clicked next {moved} of {days}x via {result['date_nav']['how']}; label now {scrub_text(label)!r}")
-        else:
-            step("date_nav", False, f"no next-day control found (wanted {days} day(s) ahead)")
+            detail = f"clicked next {moved} of {days}x via {result['date_nav']['how']}; label now {scrub_text(label)!r}"
+            step("date_nav", moved == days, detail + (f"; stopped: {reason}" if reason else ""))
         snapshot("bookings_target")
+        result["testids"] = _scrub_testids(driver.execute_script(_TESTIDS_JS) or {})
+        result["slot_map"] = _map_slots(driver)
+        mapped = [m for m in result["slot_map"] if m.get("time")]
+        step("slot_map", bool(mapped), f"{len(result['slot_map'])} slot element(s), {len(mapped)} matched to a time label")
 
         # 4. Slot candidates, and optionally one booking form.
         candidates = driver.execute_script(_SLOT_CANDIDATES_JS) or []
@@ -617,14 +718,96 @@ def _open_one_slot(driver, waiter, candidates, result, step, snapshot) -> None: 
             snapshot("slot_page", None, 1500)
             controls = driver.execute_script(_CONTROLS_JS, driver.find_element("css selector", "body")) or []
         result["slot_controls"] = [_scrub_control(c) for c in controls]
-        _close_dialog(driver, waiter, dialog, url_before, step)
+        if dialog is not None:
+            _capture_duration_list(driver, waiter, dialog, result, step)
+        _close_dialog(driver, waiter, driver.execute_script(_DIALOG_JS), url_before, step)
         return
     step("open_slot", False, "clicking the first 5 candidates opened no dialog")
+
+
+def _scrub_testids(raw: dict[str, Any]) -> dict[str, Any]:
+    out = {}
+    for testid, info in list(raw.items())[:200]:
+        out[_scrub_attr_value(testid)] = {
+            "n": info.get("n"),
+            "tag": info.get("tag"),
+            "role": info.get("role") or None,
+            "text": [scrub_text(t) for t in info.get("text") or []],
+        }
+    return out
+
+
+def _map_slots(driver: Any) -> list[dict[str, Any]]:
+    """Scroll the grid top to bottom, pairing every slot element with its row's time."""
+    scroller = driver.execute_script(_GRID_SCROLLER_JS)
+    seen: dict[tuple[Any, ...], dict[str, Any]] = {}
+    try:
+        height = int(driver.execute_script("return arguments[0].scrollHeight", scroller) or 0)
+        view = max(int(driver.execute_script("return arguments[0].clientHeight", scroller) or 0), 200)
+    except Exception:  # noqa: BLE001 - no scroller: map what is on screen
+        height, view = 0, 200
+    position = 0
+    for _ in range(40):  # bounded: a runaway virtual list cannot loop forever
+        if scroller is not None:
+            driver.execute_script("arguments[0].scrollTop = arguments[1]", scroller, position)
+        time.sleep(0.4)
+        found = driver.execute_script(_SLOT_MAP_JS) or {}
+        for slot in found.get("slots", []):
+            entry = {
+                "time": scrub_text(slot.get("time")) or None,
+                "testid": _scrub_attr_value(slot.get("testid") or ""),
+                "role": slot.get("role") or None,
+                "text": scrub_text(slot.get("text")),
+                "aria": scrub_text(slot.get("aria")),
+                "cls": _scrub_attr_value(slot.get("cls") or ""),
+                "data": {k: _scrub_attr_value(v) for k, v in (slot.get("data") or {}).items()},
+            }
+            seen.setdefault((entry["time"], entry["testid"], entry["text"], entry["aria"]), entry)
+        position += int(view * 0.8)
+        if position >= height:
+            break
+    if scroller is not None:
+        driver.execute_script("arguments[0].scrollTop = 0", scroller)
+    return list(seen.values())
+
+
+def _capture_duration_list(driver, waiter, dialog, result, step) -> None:  # type: ignore[no-untyped-def]
+    """Open the form's duration picker, record its options, close it without choosing."""
+    from selenium.webdriver.common.keys import Keys  # noqa: PLC0415
+
+    combos = dialog.find_elements("css selector", "[role=combobox], select")
+    if not combos:
+        step("duration_list", False, "no combobox or select in the form")
+        return
+    combo = combos[0]
+    if combo.tag_name.lower() == "select":
+        step("duration_list", True, "a native select; its options are in the form controls")
+        return
+    driver.execute_script("arguments[0].scrollIntoView({block:'center'}); arguments[0].click()", combo)
+    found = waiter.until(lambda: (lambda r: r if r.get("options") else None)(driver.execute_script(_LISTBOX_JS)), timeout=4)
+    if not found:
+        step("duration_list", False, "clicking the combobox showed no option list")
+        return
+    result["duration_list"] = {
+        "box": _scrub_outline(driver.execute_script(_OUTLINE_JS, found["box"], 80).get("outline")),
+        "options": [_scrub_control(o) for o in found["options"]],
+    }
+    step("duration_list", True, f"{len(found['options'])} option(s): "
+         + ", ".join(scrub_text(o.get("text")) for o in found["options"][:6]))
+    # Close the list only. Escape is what Ant Design listens for; a second
+    # Escape would close the whole form, which _close_dialog does next anyway.
+    try:
+        driver.switch_to.active_element.send_keys(Keys.ESCAPE)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"Escape on the duration list failed: {exc}")
 
 
 def _close_dialog(driver, waiter, dialog, url_before, step) -> None:  # type: ignore[no-untyped-def]
     from selenium.webdriver.common.keys import Keys  # noqa: PLC0415
 
+    if dialog is None and driver.current_url == url_before:
+        step("close_dialog", True, "already closed")
+        return
     try:
         driver.find_element("css selector", "body").send_keys(Keys.ESCAPE)
     except Exception as exc:  # noqa: BLE001 - the buttons below are the fallback
@@ -669,8 +852,12 @@ def _finish(result: dict[str, Any], network: _Network, out_dir: Path) -> dict[st
     return result
 
 
-def render_summary(result: dict[str, Any], *, max_chars: int = 24_000) -> str:
-    """A pasteable text version: steps, requests, then the outlines that matter."""
+#: Requests that never matter for booking; kept in capture.json, left out of the summary.
+_NOISE = re.compile(r"/cdn-cgi/|PortalNavigation|Member_GetDashboardData|bundle-portal|/rum\b", re.I)
+
+
+def render_summary(result: dict[str, Any], *, max_chars: int = 48_000) -> str:
+    """A pasteable text version, most useful sections first."""
     lines = [
         "PickleTime Bot site capture (scrubbed: names, emails and free text removed)",
         f"target date: {result.get('target_date')}  bookings url: {result.get('bookings_url')}",
@@ -678,8 +865,44 @@ def render_summary(result: dict[str, Any], *, max_chars: int = 24_000) -> str:
         "== steps",
     ]
     lines += [f"{'ok ' if s['ok'] else 'FAIL'} {s['step']}: {s['detail']}" for s in result.get("steps", [])]
-    lines += ["", "== data requests (site host only)"]
+
+    nav = result.get("date_nav")
+    if nav:
+        lines += ["", f"== date toolbar (found: {nav.get('toolbar_found')}; next chosen by: {nav.get('how')})"]
+        lines += [json.dumps(c, separators=(",", ":")) for c in nav.get("toolbar_controls") or []]
+        if nav.get("trail"):
+            lines.append(f"labels after each click: {nav['trail']}")
+        lines += outline_lines(result.get("toolbar"), limit=40)
+
+    if result.get("slot_map") is not None:
+        lines += ["", f"== slot map ({len(result['slot_map'])} slot elements, grid scrolled top to bottom)"]
+        for m in result["slot_map"]:
+            lines.append(json.dumps(m, separators=(",", ":")))
+
+    if result.get("duration_list"):
+        lines += ["", "== duration list (opened, nothing chosen)"]
+        lines += [json.dumps(o, separators=(",", ":")) for o in result["duration_list"]["options"]]
+        lines += outline_lines(result["duration_list"].get("box"), limit=40)
+
+    if result.get("slot_controls"):
+        lines += ["", "== booking form controls"]
+        lines += [json.dumps(c, separators=(",", ":")) for c in result["slot_controls"]]
+
+    for name in ("slot_dialog", "slot_page"):
+        snap = result.get(name)
+        if snap:
+            lines += ["", f"== page: {name}  url={snap['url']}  nodes={snap['nodes']}{' (truncated)' if snap.get('truncated') else ''}"]
+            lines += outline_lines(snap.get("outline"), limit=300)
+
+    if result.get("testids"):
+        lines += ["", "== data-testids on the target date's page"]
+        for testid, info in result["testids"].items():
+            lines.append(f"{testid}: n={info['n']} {info['tag']}{('[' + info['role'] + ']') if info.get('role') else ''} {info['text']}")
+
+    lines += ["", "== data requests (site host only; noise left out, see capture.json)"]
     for req in result.get("network", []):
+        if _NOISE.search(req.get("url", "")):
+            continue
         if req.get("type") == "Document" and not req.get("shape"):
             lines.append(f"[{req['phase']}] {req.get('method')} {req['url']} -> {req.get('status')} (page)")
             continue
@@ -688,27 +911,20 @@ def render_summary(result: dict[str, Any], *, max_chars: int = 24_000) -> str:
             lines.append(f"    body keys: {', '.join(req['post_keys'])}")
         if req.get("shape") is not None:
             shape = json.dumps(req["shape"], separators=(",", ":"))
-            lines.append(f"    shape: {shape[:1500]}{'…' if len(shape) > 1500 else ''}")
-    if result.get("slot_controls"):
-        lines += ["", "== booking form controls"]
-        lines += [json.dumps(c, separators=(",", ":")) for c in result["slot_controls"]]
+            lines.append(f"    shape: {shape[:1200]}{'…' if len(shape) > 1200 else ''}")
+
     if result.get("slot_candidates"):
         lines += ["", "== slot candidates (first 10)"]
         for cand in result["slot_candidates"]:
             lines += outline_lines(cand, limit=12)
             lines.append("--")
-    if result.get("slot_candidates_today"):
-        lines += ["", "== slot candidates on today's page (first 5)"]
-        for cand in result["slot_candidates_today"]:
-            lines += outline_lines(cand, limit=12)
-            lines.append("--")
-    for name in ("slot_dialog", "slot_page", "bookings_target", "bookings_today", "after_login"):
+    for name in ("bookings_target", "bookings_today", "after_login"):
         snap = result.get(name)
         if not snap:
             continue
         lines += ["", f"== page: {name}  url={snap['url']}  title={snap['title']!r}  iframes={snap['frames']}  "
                       f"nodes={snap['nodes']}{' (truncated)' if snap.get('truncated') else ''}"]
-        lines += outline_lines(snap.get("outline"), limit=400 if name != "after_login" else 120)
+        lines += outline_lines(snap.get("outline"), limit=250 if name != "after_login" else 80)
     text = "\n".join(lines) + "\n"
     if len(text) > max_chars:
         text = text[:max_chars] + f"\n… summary cut at {max_chars} characters; the full scrubbed capture is capture.json\n"
