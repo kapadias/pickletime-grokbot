@@ -113,3 +113,28 @@ def test_the_safe_word_list_holds_only_plain_words():
     from pickletime.capture import _VOCAB
 
     assert _VOCAB and all(word.isalpha() and word.islower() for word in _VOCAB)
+
+
+@pytest.mark.e2e
+def test_a_failed_date_step_still_captures_a_booking_form(chrome_paths, make_settings, tmp_path: Path):
+    """Stepping 8 days on a toolbar it does not understand must not cost the capture.
+
+    The fake site has no next-day button, so stepping fails; the capture must
+    fall back to today's slots, open one form, and still book nothing.
+    """
+    binary, driver = chrome_paths
+    state = SiteState(slots={"11:30 AM": ["30 minutes", "1 hour"]})
+    overrides = {"chrome_binary": binary, "days_in_advance": 8}
+    if driver:
+        overrides["chrome_driver_path"] = driver
+    target = make_settings(**overrides).booking.target_date()
+    titles = [format_long_date(target + timedelta(days=o)) for o in (-1, 0, 1)]
+
+    with FakeCourtReserve(state, titles, format_us_date(target)) as site:
+        settings = make_settings(base_url=site.base_url, **overrides)
+        result = capture_site(settings, tmp_path / "cap", open_slot=True)
+
+    steps = {s["step"]: s for s in result["steps"]}
+    assert steps["open_slot"]["ok"], result["steps"]
+    assert result.get("slot_controls")
+    assert state.bookings == []

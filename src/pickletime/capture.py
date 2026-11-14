@@ -223,16 +223,18 @@ const labels = all.filter(e => DATE_RE.test(e.textContent || '') && (e.textConte
   .sort((a, b) => (a.textContent.length - b.textContent.length));
 const label = labels[0] || null;
 let next = null, how = null;
-const clickable = e => e.matches('button,a,[role=button]') || getComputedStyle(e).cursor === 'pointer';
+// Only controls that cannot navigate away: buttons, role=button, or links to "#".
+const safe = e => e.offsetParent !== null && !e.closest('header,nav,[role=navigation],[role=banner]') &&
+  (e.tagName !== 'A' || !e.getAttribute('href') || /^(#|javascript:)/.test(e.getAttribute('href')));
 const aria = Array.from(document.querySelectorAll('button,a,[role=button]'))
-  .filter(e => e.offsetParent !== null && /next|forward/i.test((e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '') + ' ' + (e.className || '')));
+  .filter(e => safe(e) && /next|forward/i.test((e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '') + ' ' + (typeof e.className === 'string' ? e.className : '')));
 if (aria.length) { next = aria[0]; how = 'aria/title/class mentions next'; }
 if (!next && label) {
   let box = label;
   for (let i = 0; i < 4 && box && !next; i++) {
     box = box.parentElement;
     if (!box) break;
-    const btns = Array.from(box.querySelectorAll('button,a,[role=button]')).filter(e => e.offsetParent !== null && !e.contains(label) && !label.contains(e));
+    const btns = Array.from(box.querySelectorAll('button,a,[role=button]')).filter(e => safe(e) && !e.contains(label) && !label.contains(e));
     const after = btns.filter(b => label.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING);
     const before = btns.filter(b => label.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     if (before.length >= 1 && /today/i.test(btns[0].textContent || '') && btns.length >= 3) { next = btns[2]; how = 'third control after Today'; }
@@ -522,6 +524,10 @@ def capture_site(
         snapshot("bookings_today")
         legacy = bool(driver.find_elements("css selector", ".k-scheduler-content"))
         step("bookings_page", True, f"legacy Kendo grid present: {legacy}")
+        today_candidates = driver.execute_script(_SLOT_CANDIDATES_JS) or []
+        result["slot_candidates_today"] = [
+            _scrub_outline(driver.execute_script(_OUTLINE_JS, c, 25).get("outline")) for c in today_candidates[:5]
+        ]
 
         # 3. Step forward to the target date.
         days = (target - now_in(booking.tz).date()).days
@@ -531,6 +537,7 @@ def capture_site(
         if days <= 0:
             step("date_nav", True, "target date is today; no stepping needed")
         elif nav.get("next") is not None:
+            page = urlsplit(driver.current_url).path
             for _ in range(days):
                 before = driver.execute_script(_DATE_NAV_JS).get("labelText")
                 try:
@@ -543,17 +550,33 @@ def capture_site(
                 def label_changed(previous: str | None = before) -> bool:
                     return bool(driver.execute_script(_DATE_NAV_JS).get("labelText") != previous)
 
-                waiter.until(label_changed, timeout=6)
+                changed = waiter.until(label_changed, timeout=6)
+                if urlsplit(driver.current_url).path != page:
+                    driver.get(booking.bookings_url)
+                    _settle(driver)
+                    step("date_nav_guard", False, "the next-day control navigated away; went back to the bookings page")
+                    moved = -1
+                    break
+                if not changed:
+                    break
                 nav = driver.execute_script(_DATE_NAV_JS)
                 moved += 1
             label = driver.execute_script(_DATE_NAV_JS).get("labelText")
-            step("date_nav", True, f"clicked next {moved}x via {result['date_nav']['how']}; label now {scrub_text(label)!r}")
+            if moved >= 0:
+                step("date_nav", moved == days,
+                     f"clicked next {moved} of {days}x via {result['date_nav']['how']}; label now {scrub_text(label)!r}")
         else:
             step("date_nav", False, f"no next-day control found (wanted {days} day(s) ahead)")
         snapshot("bookings_target")
 
         # 4. Slot candidates, and optionally one booking form.
         candidates = driver.execute_script(_SLOT_CANDIDATES_JS) or []
+        if not candidates and today_candidates:
+            # Stepping lost the grid; reopen today's page and use its slots.
+            driver.get(booking.bookings_url)
+            _settle(driver)
+            candidates = driver.execute_script(_SLOT_CANDIDATES_JS) or []
+            step("slot_source", True, "target date had no candidates; using today's page")
         result["slot_candidates"] = [
             _scrub_outline(driver.execute_script(_OUTLINE_JS, c, 25).get("outline")) for c in candidates[:10]
         ]
@@ -672,6 +695,11 @@ def render_summary(result: dict[str, Any], *, max_chars: int = 24_000) -> str:
     if result.get("slot_candidates"):
         lines += ["", "== slot candidates (first 10)"]
         for cand in result["slot_candidates"]:
+            lines += outline_lines(cand, limit=12)
+            lines.append("--")
+    if result.get("slot_candidates_today"):
+        lines += ["", "== slot candidates on today's page (first 5)"]
+        for cand in result["slot_candidates_today"]:
             lines += outline_lines(cand, limit=12)
             lines.append("--")
     for name in ("slot_dialog", "slot_page", "bookings_target", "bookings_today", "after_login"):
