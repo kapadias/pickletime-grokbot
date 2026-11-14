@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- The first live run showed Lifetime Sunnyvale's bookings page on a new CourtReserve layout without the Kendo scheduler the engine reads. Booking cannot work on it until the engine is updated for that layout; this release gathers what that needs.
+- New `run.sh capture [--open-slot]`: signs in and records the bookings page's structure, the site's data requests and (with `--open-slot`) one booking form, scrubbed of names and free text, plus screenshots. Never books. Ask-first.
+- The navigation error now says when the bookings page loaded without the grid this release reads, instead of blaming a missing menu entry, and names the capture command.
+
 ## 0.1.0
 
 First release.

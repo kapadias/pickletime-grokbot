@@ -9,6 +9,8 @@ paths from ``env.sh`` in place. Subcommands:
   report                           today's outcome, for a detached run
   status                           mode, next play dates, recent runs, ledger
   timing                           how late routines actually started
+  capture [--open-slot]            log in and record the site's structure,
+                                   scrubbed, for fixing the engine; never books
   doctor [--full]                  readiness checks; --full also books a court
                                    on a local fake CourtReserve to prove Chrome
   go-live --owner-tapped           switch from rehearsal (dry runs) to live
@@ -477,6 +479,36 @@ def cmd_report(_args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_capture(args: argparse.Namespace) -> int:
+    """Log in and record the booking site's structure, scrubbed. Never books."""
+    started = _now_utc()
+    out_dir = DESK / "captures" / f"{started:%Y%m%dT%H%M%SZ}"
+    try:
+        load_secrets_file()
+        _configure_engine_logging("capture")
+        settings = _load_settings(dry_run=True)
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print(f"FAILED: configuration or credentials: {str(exc).splitlines()[0]}")
+        return EXIT_CONFIG
+
+    from pickletime.capture import capture_site
+
+    try:
+        result = capture_site(settings, out_dir, open_slot=args.open_slot)
+    except Exception as exc:
+        print(f"FAILED: the capture stopped: {type(exc).__name__}: {str(exc).splitlines()[0]}")
+        return EXIT_INFRA
+    failed = [s["step"] for s in result.get("steps", []) if not s["ok"]]
+    print(f"Capture written to {out_dir} (nothing was booked; text is scrubbed).")
+    print(f"Steps failed: {', '.join(failed) if failed else 'none'}. Screenshots: {', '.join(sorted(p.name for p in out_dir.glob('*.png')))}")
+    print("Share summary.txt below with whoever is fixing the engine; screenshots are not scrubbed.")
+    print()
+    print((out_dir / "summary.txt").read_text(encoding="utf-8"))
+    return EXIT_OK
+
+
 def cmd_status(_args: argparse.Namespace) -> int:
     print(f"mode: {read_mode()}  (rehearsal = dry runs only; live = real bookings)")
     print(f"release: {os.environ.get('BOT_RELEASE')}  commit: {_checkout_commit()[:12]}")
@@ -700,6 +732,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("report", help="today's outcome").set_defaults(func=cmd_report)
     sub.add_parser("status", help="mode, play dates, recent runs").set_defaults(func=cmd_status)
     sub.add_parser("timing", help="routine lateness").set_defaults(func=cmd_timing)
+
+    capture = sub.add_parser("capture", help="record the booking site's structure (never books)")
+    capture.add_argument("--open-slot", action="store_true", help="also open one slot's booking form, then close it")
+    capture.set_defaults(func=cmd_capture)
 
     doctor = sub.add_parser("doctor", help="readiness checks")
     doctor.add_argument("--full", action="store_true", help="also book on a local fake site")

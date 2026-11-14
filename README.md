@@ -23,7 +23,7 @@ takes over, it fires on the second, exactly as it did on Cloud Run.
 
 Open Grok Bot, create a new Bot, and paste:
 
-> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.1.0/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.1.0/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
+> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.1.1/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.1.1/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
 
 The Bot installs Python, the booking engine and Chrome under
 `/workspace`, then books a court on a local fake CourtReserve to prove Chrome

@@ -73,6 +73,34 @@ def test_menu_fallback_runs_when_the_grid_does_not_render() -> None:
 
 def test_navigation_failure_is_reported_with_context() -> None:
     driver = FakeDriver({})
+    driver.get = lambda url: setattr(driver, "current_url", "https://app.courtreserve.com/Online/Portal")  # type: ignore[method-assign]
+    settings = BookingSettings(webdriver_timeout=1, sport_id=4242)
+    navigation = NavigationService(driver, waiter_for(driver, 0.2), settings)
+
+    with pytest.raises(NavigationError, match="4242"):
+        navigation.open_booking_grid()
+
+
+def test_new_layout_bookings_page_names_the_cause_and_the_capture() -> None:
+    """The real 2026-11 failure: login fine, bookings page loads, no Kendo grid.
+
+    The old message blamed a missing menu entry, which sent the reader to the
+    wrong place. It must say the layout changed and how to capture it.
+    """
+    driver = FakeDriver({})  # no .k-scheduler-content, no menu entry
+    settings = BookingSettings(webdriver_timeout=1)
+    navigation = NavigationService(driver, waiter_for(driver, 0.2), settings)
+
+    with pytest.raises(NavigationError, match="no Kendo scheduler grid") as excinfo:
+        navigation.open_booking_grid()
+    assert "run.sh capture --open-slot" in str(excinfo.value)
+    assert "Nothing was booked" in str(excinfo.value)
+
+
+def test_landing_elsewhere_keeps_the_original_message() -> None:
+    """Redirected away from the bookings page (say, to a login page): not a layout change."""
+    driver = FakeDriver({})
+    driver.get = lambda url: setattr(driver, "current_url", "https://app.courtreserve.com/Online/Account/LogIn/13233")  # type: ignore[method-assign]
     settings = BookingSettings(webdriver_timeout=1, sport_id=4242)
     navigation = NavigationService(driver, waiter_for(driver, 0.2), settings)
 

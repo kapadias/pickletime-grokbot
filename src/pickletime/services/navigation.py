@@ -23,6 +23,14 @@ from ..settings import BookingSettings
 
 logger = get_logger()
 
+#: The bookings page loaded, but not the calendar this engine knows how to read.
+_NEW_LAYOUT_HINT = (
+    "The bookings page loaded but has no Kendo scheduler grid: CourtReserve has "
+    "moved this facility to a page layout this release cannot read. Nothing was "
+    "booked. Run `run.sh capture --open-slot` and share its summary.txt so the "
+    "engine can be updated."
+)
+
 
 class NavigationService:
     """Opens the booking calendar for the configured sport."""
@@ -41,10 +49,18 @@ class NavigationService:
             logger.info(f"Booking grid ready in {time.monotonic() - started:.2f}s (direct)")
             return time.monotonic() - started
 
+        landed_on_bookings = "/reservations/bookings/" in self._current_url().lower()
         logger.warning("Direct navigation did not render the grid; falling back to the menu")
-        self._navigate_via_menu()
+        try:
+            self._navigate_via_menu()
+        except NavigationError as exc:
+            if landed_on_bookings:
+                raise NavigationError(_NEW_LAYOUT_HINT) from exc
+            raise
 
         if not self._grid_ready():
+            if landed_on_bookings:
+                raise NavigationError(_NEW_LAYOUT_HINT)
             raise NavigationError(
                 "Could not reach the booking grid for "
                 f"sport {self.settings.sport_id} at {self.settings.bookings_url}"
@@ -80,9 +96,12 @@ class NavigationService:
             )
         self.waiter.click(sport, f"{self.settings.sport_name} menu entry")
 
-    def _on_reservations_url(self) -> bool:
+    def _current_url(self) -> str:
         try:
-            url = str(self.driver.current_url or "")
-        except Exception:  # noqa: BLE001 - treat a dead session as "not there yet"
-            return False
-        return "reservations" in url.lower() or "bookings" in url.lower()
+            return str(self.driver.current_url or "")
+        except Exception:  # noqa: BLE001 - treat a dead session as "nowhere yet"
+            return ""
+
+    def _on_reservations_url(self) -> bool:
+        url = self._current_url().lower()
+        return "reservations" in url or "bookings" in url

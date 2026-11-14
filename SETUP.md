@@ -9,7 +9,7 @@ phrase the owner says. Steps marked **You** are the owner's alone.
 
 | Path | What it is |
 | --- | --- |
-| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.1.0`; never edited |
+| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.1.1`; never edited |
 | `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/` (Chrome, Python, the installed engine) |
 | `/workspace/.pickletime-secrets/courtreserve.env` | only if the owner chooses a file instead of the secret card (mode 0600) |
 
@@ -24,7 +24,7 @@ unless it says otherwise; it is written `run.sh` for short.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.1.0 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch v0.1.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
 If the tag does not exist, stop and tell the owner. An existing checkout stays
@@ -121,7 +121,7 @@ the offset from 7.2).
    ```
 
    ```text
-   Ask first: any command carrying --owner-tapped or --ignore-ledger, including run.sh go-live and run.sh rehearse; writing, replacing or deleting /workspace/pickletime-desk/config.yaml or anything under /workspace/pickletime-desk/state; editing anything under /workspace/pickletime-grokbot; cancelling or changing a court reservation; any payment; typing the CourtReserve password into any page or command yourself.
+   Ask first: any command carrying --owner-tapped or --ignore-ledger, including run.sh go-live and run.sh rehearse; run.sh capture, which signs in and may open a booking form; writing, replacing or deleting /workspace/pickletime-desk/config.yaml or anything under /workspace/pickletime-desk/state; editing anything under /workspace/pickletime-grokbot; cancelling or changing a court reservation; any payment; typing the CourtReserve password into any page or command yourself.
    ```
 
    Auto-review is model-based and an "Ask first" rule wins over an "Allow"
@@ -224,10 +224,36 @@ checkout, and after the owner's tap swaps the directories. `config.yaml`,
 | `[WARN] release_pin` | the checkout is not the tag; re-clone section 1 |
 | `[FAIL] credentials` | a secret is missing or misnamed; the names are exactly `USERID` and `PASSWORD` |
 | `FAILED for <date>: LoginError` | wrong password or a locked account; check it in CourtReserve, then update the card |
+| `NavigationError: The bookings page loaded but has no Kendo scheduler grid` | CourtReserve moved the facility to a new page layout; the engine needs updating. Pause the `book` routine and follow 11.1 |
 | `NOT BOOKED: ... not offered` | the club's duration wording changed; set `duration_labels` (7.1); `config/config.sample.yaml` explains it |
 
 The engine's full log for every run is in `/workspace/pickletime-desk/logs/`,
 and each run's record (timings, verdict, lateness) in `state/runs/`.
+
+### 11.1 "capture the booking page"
+
+When CourtReserve changes its pages, the engine needs their new structure.
+After the owner taps approve on the Ask-first card:
+
+```text
+run.sh capture --open-slot
+```
+
+It signs in, opens the bookings page, steps to the date the bot would book,
+and opens one open slot's booking form, then closes it. It never clicks Save,
+Confirm, Submit, Pay, Book or Reserve inside a form, and it writes:
+
+- `summary.txt`: steps, the site's data requests (JSON reduced to its shape),
+  the booking form's controls, and an outline of each page. Text is kept only
+  when it is times, dates, numbers or interface words; names, emails and notes
+  become placeholders such as `«text:14»`;
+- `capture.json`: the same, in full;
+- screenshots (`*.png`), which are **not** scrubbed.
+
+All under `/workspace/pickletime-desk/captures/<time>/`. Post the output
+verbatim; the owner shares `summary.txt` (and screenshots, if they choose) with
+whoever updates the engine. Without `--open-slot` it stops before opening any
+form.
 
 ## 12. If you are not Grok Bot
 

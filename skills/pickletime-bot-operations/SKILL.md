@@ -3,7 +3,7 @@ name: pickletime-bot-operations
 description: Standing instructions for PickleTime Bot after setup - what each owner phrase runs (turn on the routine, show routine timing, go live, status, change my booking window, book now, retire Cloud Run), how routine output is posted, which commands need the owner's tap, and what to do when a run fails or a routine is late. Use for every request after the first run.
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   category: booking
 ---
 
@@ -27,6 +27,7 @@ sentence of your own, and never a number the tool did not print.
 | "book now", "try again today" | only after the owner's tap: `run.sh book` (a live run if mode is live). Never `--ignore-ledger` unless the owner asks for it by name |
 | "did it work?" | `run.sh report` |
 | "retire Cloud Run" | SETUP.md 9 |
+| "capture the booking page" | SETUP.md 11.1: after the owner's tap, `run.sh capture --open-slot`; post its output verbatim and tell the owner the screenshots' paths |
 
 ## Routine output
 
@@ -45,6 +46,7 @@ sentence of your own, and never a number the tool did not print.
 | `FAILED: configuration or credentials` | `run.sh doctor`; fix the failing check (a missing secret: ask the owner to re-add it through the card) |
 | `FAILED: the booking computer is not ready` | `bash /workspace/pickletime-grokbot/scripts/install.sh`, then `run.sh doctor --full` |
 | `FAILED for <date>: LoginError ...` | the site rejected the login: the owner checks the password on the card, or whether CourtReserve locked the account |
+| `FAILED for <date>: NavigationError: The bookings page loaded but has no Kendo scheduler grid ...` | CourtReserve changed the page layout. Nothing was booked. Offer to pause the `book` routine, then SETUP.md 11.1 (capture) so the engine can be updated |
 | `NOT BOOKED <date>: ...` | a business outcome (courts were gone). Post it; suggest widening the window only if the owner asks |
 | `UNAVAILABLE - today's run ... was cut off` | Grok stopped the long-running command; follow SETUP.md 8 (detached mode) |
 | `NOT RUN - started ... min before` | the routine is scheduled too early for the 120-minute cap; move it later |
