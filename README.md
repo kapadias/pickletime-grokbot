@@ -23,7 +23,7 @@ takes over, it fires on the second, exactly as it did on Cloud Run.
 
 Open Grok Bot, create a new Bot, and paste:
 
-> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.1.2/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.1.2/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
+> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.2.0/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.2.0/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
 
 The Bot installs Python, the booking engine and Chrome under
 `/workspace`, then books a court on a local fake CourtReserve to prove Chrome
@@ -76,6 +76,11 @@ booking window to ..."**, **"back to rehearsal"**, **"book now"**.
   If Grok stops it, `show routine timing` says so, and SETUP.md section 8
   switches to a detached run plus a 12:30 report routine.
 - **Missed runs are not replayed.** Say "book now" to try later the same day.
+- **Both CourtReserve layouts are supported:** the older calendar and the newer
+  member portal (live at Lifetime Sunnyvale since November 2026). On the portal,
+  what the site shows after Confirm has not been seen yet; until the first live
+  booking teaches it, a form that closes silently is reported `UNVERIFIED` and
+  the run stops, so check CourtReserve. SETUP.md 7.3 describes that first booking.
 - Notifications come from Grok: each result is posted in the Bot's chat, and
   Grok's notifications bring it to your phone. There is no SMS or email
   alerting of its own.
@@ -84,7 +89,7 @@ booking window to ..."**, **"back to rehearsal"**, **"book now"**.
 
 ```
 scripts/run.sh        the one entry point (routines, owner requests)
-src/pickletime/      the booking engine: settings, Chrome, login, grid, the slot race
+src/pickletime/      the booking engine: settings, Chrome, login, both layouts, the slot race
 scripts/install.sh    installs uv, Python 3.11, the engine, Chrome under /workspace
 scripts/ptbot.py      book / report / status / timing / doctor / go-live
 scripts/env.sh        paths; sourced by the others

@@ -154,6 +154,12 @@ def verdict_line(result: dict[str, Any]) -> str:
         return f"NOT RUN - {result.get('detail')}"
     if result.get("error"):
         return f"{prefix}FAILED for {day}: {result['error']}"
+    if result.get("confirmation") == "unverified" and not rehearsal:
+        return (
+            f"UNVERIFIED {day} at {result.get('time')} for {result.get('duration')} min: the site neither "
+            f"confirmed nor refused. Check your reservations in CourtReserve now; the bot stopped so it "
+            f"cannot book a second court. ({result.get('detail')})"
+        )
     if result.get("booked"):
         what = f"{result.get('time')} for {result.get('duration')} min"
         verb = "would book" if rehearsal else "BOOKED"
@@ -418,6 +424,7 @@ def cmd_book(args: argparse.Namespace) -> int:
         else "already-booked" if result.get("skipped_reason")
         else "error" if result.get("error")
         else "booked" if result.get("booked")
+        else "unverified" if result.get("confirmation") == "unverified"
         else "not-booked"
     )
     record["finished_at"] = _now_utc().isoformat()
@@ -425,6 +432,9 @@ def cmd_book(args: argparse.Namespace) -> int:
 
     print(verdict_line(record))
     print(timing_line(record))
+    answer = _after_confirm_line(record.get("log"))
+    if answer:
+        print(f"Site's answer after Confirm (share this line when asked): {answer}")
     if plan.late_for_release:
         print(
             "WARNING: this routine started after the release; slots may already be gone. "
@@ -434,6 +444,19 @@ def cmd_book(args: argparse.Namespace) -> int:
         print(f"Engine log: {record.get('log')}")
         return EXIT_INFRA
     return EXIT_OK if record["outcome"] in {"booked", "skipped", "already-booked"} or effective.dry_run else EXIT_NOT_BOOKED
+
+
+def _after_confirm_line(log: str | None) -> str | None:
+    """The engine's record of what the site showed after Confirm, if it pressed it."""
+    if not log:
+        return None
+    try:
+        for line in Path(log).read_text(encoding="utf-8", errors="replace").splitlines():
+            if "AFTER CONFIRM" in line:
+                return line.split("AFTER CONFIRM", 1)[1].strip()[:900]
+    except OSError:
+        return None
+    return None
 
 
 def _detach(args: argparse.Namespace) -> int:
@@ -651,6 +674,11 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         except Exception as exc:  # a crash here is a failed check, not a traceback
             ok, detail = False, f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
         _check(results, "fake_site_booking", ok, detail)
+        try:
+            ok, detail = _fake_portal_rehearsal()
+        except Exception as exc:  # a crash here is a failed check, not a traceback
+            ok, detail = False, f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
+        _check(results, "fake_portal_booking", ok, detail)
 
     for status, name, detail in results:
         print(f"[{status}] {name}: {detail}")
@@ -695,6 +723,35 @@ def _fake_site_rehearsal() -> tuple[bool, str]:
     if report.booked and state.bookings == [{"slot": "11:30 AM", "duration": "1 hour"}]:
         return True, f"booked 11:30 AM for 60 min on the fake site in {took:.1f}s (Chrome works here)"
     return False, f"fake-site booking failed: {report.error or report.detail}; bookings={state.bookings}"
+
+
+def _fake_portal_rehearsal() -> tuple[bool, str]:
+    """Book on the test suite's fake member portal: the layout the live site uses now."""
+    sys.path.insert(0, str(CHECKOUT / "tests" / "engine"))
+    from fake_portal import FakePortal, PortalState  # type: ignore[import-not-found]
+
+    from pickletime.bot import CourtBookingBot
+    from pickletime.ledger import NullLedger
+    from pickletime.settings import BookingSettings, Credentials, RuntimeSettings, Settings
+
+    base = {
+        "search_start_time": "6:00 PM", "search_end_time": "7:00 PM", "preferred_durations": [60, 30],
+        "priority_time_slots": ["6:30 PM"], "headless": True, "webdriver_timeout": 10, "page_load_timeout": 30,
+        "poll_interval_ms": 50, "sprint_seconds": 8, "max_retries": 0, "retry_interval": 0, "days_in_advance": 8,
+        "chrome_binary": os.environ.get("CHROME_BIN"), "chrome_driver_path": os.environ.get("CHROME_DRIVER_PATH"),
+    }
+    target = BookingSettings(**base).target_date()
+    state = PortalState(today=target - timedelta(days=8), open_slots={target: {"6:30 PM": 1}})
+    runtime = RuntimeSettings(log_level="WARNING", log_json=False, ledger_path=str(STATE / "fake-portal-ledger.json"))
+    started = _time.monotonic()
+    with FakePortal(state) as site:
+        settings = Settings(booking=BookingSettings(**base, base_url=site.base_url),
+                            credentials=Credentials(username=state.username, password=state.password), runtime=runtime)
+        report = CourtBookingBot(settings, ledger=NullLedger()).run()
+    took = _time.monotonic() - started
+    if report.booked and state.bookings == [{"date": target.isoformat(), "slot": "6:30 PM", "duration": "60"}]:
+        return True, f"stepped 8 days and booked 6:30 PM for 60 min on the fake portal in {took:.1f}s"
+    return False, f"fake-portal booking failed: {report.error or report.detail}; bookings={state.bookings}"
 
 
 # ---------------------------------------------------------------------------

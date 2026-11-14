@@ -3,7 +3,7 @@ name: pickletime-bot-operations
 description: Standing instructions for PickleTime Bot after setup - what each owner phrase runs (turn on the routine, show routine timing, go live, status, change my booking window, book now, retire Cloud Run), how routine output is posted, which commands need the owner's tap, and what to do when a run fails or a routine is late. Use for every request after the first run.
 license: MIT
 metadata:
-  version: "0.1.2"
+  version: "0.2.0"
   category: booking
 ---
 
@@ -47,6 +47,7 @@ sentence of your own, and never a number the tool did not print.
 | `FAILED: the booking computer is not ready` | `bash /workspace/pickletime-grokbot/scripts/install.sh`, then `run.sh doctor --full` |
 | `FAILED for <date>: LoginError ...` | the site rejected the login: the owner checks the password on the card, or whether CourtReserve locked the account |
 | `FAILED for <date>: NavigationError: The bookings page loaded but has no Kendo scheduler grid ...` | CourtReserve changed the page layout. Nothing was booked. Offer to pause the `book` routine, then SETUP.md 11.1 (capture) so the engine can be updated |
+| `UNVERIFIED <date> at <time> ...` | Not a failure and not a booking. Tell the owner to check CourtReserve now; never run `book` again for that date until they have. If the court is there, ask them to share the `Site's answer after Confirm` line |
 | `NOT BOOKED <date>: ...` | a business outcome (courts were gone). Post it; suggest widening the window only if the owner asks |
 | `UNAVAILABLE - today's run ... was cut off` | Grok stopped the long-running command; follow SETUP.md 8 (detached mode) |
 | `NOT RUN - started ... min before` | the routine is scheduled too early for the 120-minute cap; move it later |

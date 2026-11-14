@@ -100,3 +100,40 @@ SAVE_BUTTON: str = (
 MODAL_CONTAINER: str = ".modal.show, .modal.in, .k-window, #createReservation-modal"
 
 SUCCESS_POPUP: str = ".swal2-popup, .toast-success, .alert-success, [role='alert']"
+
+
+# ---------------------------------------------------------------------------
+# The member portal (CourtReserve's newer layout, live at Lifetime Sunnyvale
+# from 2026-11). A single-page app; every hook below is a data-testid read from
+# a scrubbed capture of the live page (`run.sh capture --open-slot`), except
+# where noted. These are far steadier than its generated `acss-*` class names.
+# ---------------------------------------------------------------------------
+
+#: Present once the portal's scheduler has rendered.
+PORTAL_SCHEDULER: str = "[data-testid='scheduler-page']"
+PORTAL_NEXT_DAY: str = "[data-testid='scheduler-next-btn']"
+PORTAL_PREV_DAY: str = "[data-testid='scheduler-prev-btn']"
+PORTAL_TODAY: str = "[data-testid='scheduler-today-btn']"
+#: Reads like "Saturday, November 14" (no year).
+PORTAL_DATE_LABEL: str = "[data-testid='scheduler-date-label']"
+PORTAL_REFRESH: str = "[data-testid='scheduler-refresh-btn']"
+#: An open half-hour slot, reading "Reserve". Full ones read "None Available"
+#: and carry no testid; past ones are empty.
+PORTAL_SLOT: str = "[data-testid='consolidated-reserve-slot']"
+
+PORTAL_MODAL: str = "[data-testid='reservation-create-modal']"
+#: "NOV 14 · Saturday · 8:00 AM – 8:30 AM" - checked before confirming.
+PORTAL_DATE_TIME: str = "[data-testid='reservation-date-time-display']"
+PORTAL_DURATION_COMBO: str = "[data-testid='reservation-duration'] [role='combobox']"
+#: The duration list opens in a body-level portal, outside the modal.
+PORTAL_DURATION_OPTION: str = "[role='listbox'] [role='option']"
+#: role=checkbox sits on the parent of the testid'd box.
+PORTAL_DISCLOSURE_BOX: str = "[data-testid='reservation-disclosure-agree']"
+PORTAL_CONFIRM: str = "[data-testid='reservation-mobile-submit-btn']"
+PORTAL_CANCEL: str = "[data-testid='reservation-mobile-back-btn'], .ant-modal-close"
+#: Where the portal shows toasts. What it shows after Confirm has not been
+#: observed live yet; the service records it on the first booking.
+PORTAL_MESSAGES: str = (
+    "[data-toast-portal] [role='region'] *, [role='status'], [role='alert'], "
+    ".ant-message-notice, .ant-notification-notice"
+)

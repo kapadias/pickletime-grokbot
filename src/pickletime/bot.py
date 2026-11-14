@@ -117,6 +117,17 @@ class RunReport:
         }
 
 
+def booking_service_for(
+    layout: str | None, driver: Any, waiter: Any, settings: Any
+) -> BookingService:
+    """The booking service that speaks the layout the bookings page rendered."""
+    if layout == "portal":
+        from .services.portal import PortalBookingService  # noqa: PLC0415
+
+        return PortalBookingService(driver, waiter, settings)
+    return BookingService(driver, waiter, settings)
+
+
 class CourtBookingBot:
     """Runs one booking attempt end to end."""
 
@@ -227,10 +238,11 @@ class CourtBookingBot:
         with self._browser_factory() as (driver, waiter):
             auth = AuthService(driver, waiter, settings, self.settings.credentials)
             navigation = NavigationService(driver, waiter, settings)
-            booking = BookingService(driver, waiter, settings)
 
             auth.login()
             navigation.open_booking_grid()
+            layout = getattr(navigation, "layout", None)
+            booking = booking_service_for(layout, driver, waiter, settings)
             booking.select_date(target)
 
             report = booking.diagnose(booking.build_plan(target))
@@ -266,10 +278,11 @@ class CourtBookingBot:
 
             auth = AuthService(driver, waiter, settings, self.settings.credentials)
             navigation = NavigationService(driver, waiter, settings)
-            booking = BookingService(driver, waiter, settings)
 
             timings["login"] = auth.login()
             timings["navigate"] = navigation.open_booking_grid()
+            layout = getattr(navigation, "layout", None)
+            booking = booking_service_for(layout, driver, waiter, settings)
 
             # The target date may not exist in the picker yet: a facility that
             # releases the Nth day out on the clock adds it at the release

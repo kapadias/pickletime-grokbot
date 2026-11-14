@@ -9,7 +9,7 @@ phrase the owner says. Steps marked **You** are the owner's alone.
 
 | Path | What it is |
 | --- | --- |
-| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.1.2`; never edited |
+| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.2.0`; never edited |
 | `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/` (Chrome, Python, the installed engine) |
 | `/workspace/.pickletime-secrets/courtreserve.env` | only if the owner chooses a file instead of the secret card (mode 0600) |
 
@@ -24,7 +24,7 @@ unless it says otherwise; it is written `run.sh` for short.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.1.2 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch v0.2.0 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
 If the tag does not exist, stop and tell the owner. An existing checkout stays
@@ -60,6 +60,7 @@ with no live site involved. Expect:
 
 ```text
 [PASS] fake_site_booking: booked 11:30 AM for 60 min on the fake site in 1.5s (Chrome works here)
+[PASS] fake_portal_booking: stepped 8 days and booked 6:30 PM for 60 min on the fake portal in 6.0s
 ```
 
 `credentials` fails until section 4. Post the output, labelled "local fake site, not CourtReserve".
@@ -176,6 +177,17 @@ run.sh go-live --owner-tapped
 It prints `mode: rehearsal -> live`. From the next play day, a found slot is
 booked for real. `run.sh rehearse --owner-tapped` goes back.
 
+**The first live booking on the member portal.** What CourtReserve shows after
+Confirm on its newer layout has not been observed yet, so the engine treats a
+booking as confirmed only when a message says so. If the form just closes, the
+verdict is `UNVERIFIED ...: check your reservations in CourtReserve now`, and
+the run stops so it cannot book a second court. Either way the output carries
+a line starting `Site's answer after Confirm`. Recommend a supervised first
+booking: in live mode, after the owner's tap, `run.sh book` for a slot the
+owner actually wants, while they watch CourtReserve. Then ask the owner to
+check the reservation exists and to share the `Site's answer` line, so the
+engine can recognise the confirmation from then on.
+
 ## 8. If routines are cut off (detached mode)
 
 If `run.sh timing` reports runs "cut off or still running", Grok stopped the
@@ -221,6 +233,8 @@ checkout, and after the owner's tap swaps the directories. `config.yaml`,
 | `FAIL: Chrome needs: libnss3.so ...` | no root, no sudo and no `apt-get`; ask Grok Bot support whether packages can be installed |
 | `[FAIL] engine: ... run scripts/install.sh` | the venv holds code from another checkout; run `install.sh` again |
 | `[FAIL] fake_site_booking` | Chrome starts but cannot drive the page; post the line and `logs/*-doctor.log` |
+| `[FAIL] fake_portal_booking` | the engine cannot drive the member-portal layout on this computer; post the line and `logs/*-doctor.log` |
+| `UNVERIFIED <date> at <time>` | the form closed after Confirm with no message. The owner checks CourtReserve; if the court is there, share the `Site's answer` line so the engine learns the confirmation. Never re-run for that date before checking |
 | `[WARN] release_pin` | the checkout is not the tag; re-clone section 1 |
 | `[FAIL] credentials` | a secret is missing or misnamed; the names are exactly `USERID` and `PASSWORD` |
 | `FAILED for <date>: LoginError` | wrong password or a locked account; check it in CourtReserve, then update the card |

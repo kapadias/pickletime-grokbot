@@ -98,6 +98,16 @@ class VerdictTests(unittest.TestCase):
         self.assertTrue(line.startswith("NOT BOOKED Thu"))
 
 
+class UnverifiedVerdictTests(unittest.TestCase):
+    def test_unverified_is_never_reported_as_not_booked(self):
+        line = ptbot.verdict_line({"mode": "live", "booked": False, "confirmation": "unverified",
+                                   "date_long": "Saturday, November 21, 2026", "time": "6:30 PM", "duration": 60,
+                                   "detail": "the form closed after Confirm with no message either way"})
+        self.assertTrue(line.startswith("UNVERIFIED Saturday, November 21, 2026 at 6:30 PM"))
+        self.assertIn("Check your reservations in CourtReserve now", line)
+        self.assertNotIn("NOT BOOKED", line)
+
+
 class TimingSummaryTests(unittest.TestCase):
     def test_recommends_at_least_45_minutes(self):
         records = [{"late_minutes": m, "started_at": "x", "finished_at": "y"} for m in (2, 5, 9)]

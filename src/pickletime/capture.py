@@ -265,7 +265,8 @@ if (scope) {
     if (today) { const i = cs.indexOf(today); if (cs[i + 2]) { next = cs[i + 2]; how = 'second control after Today'; } }
   }
 }
-return {label: label, labelText: label ? label.textContent.trim().slice(0, 60) : null, next: next, how: how,
+const nextEnabled = !!next && !next.disabled && next.getAttribute('aria-disabled') !== 'true';
+return {label: label, labelText: label ? label.textContent.trim().slice(0, 60) : null, next: next, how: how, nextEnabled: nextEnabled,
   toolbar: toolbar, toolbarControls: scope ? controls(scope).map(describe) : []};
 """
 
@@ -639,10 +640,16 @@ def capture_site(
             page = urlsplit(driver.current_url).path
             moved, reason = 0, ""
             for _ in range(days):
-                nav = driver.execute_script(_DATE_NAV_JS)  # fresh each step: the toolbar re-renders
+                # The live toolbar is disabled while a day loads; a click then
+                # does nothing. Wait for it, re-finding it each step.
+                nav = waiter.until(lambda: (lambda n: n if n.get("nextEnabled") else None)(
+                    driver.execute_script(_DATE_NAV_JS)), timeout=10) or driver.execute_script(_DATE_NAV_JS)
                 before = nav.get("labelText")
                 if nav.get("next") is None:
                     reason = "next control disappeared"
+                    break
+                if not nav.get("nextEnabled"):
+                    reason = f"next stayed disabled for 10s at {scrub_text(before)!r} (the last open day?)"
                     break
                 driver.execute_script("arguments[0].click()", nav["next"])
 

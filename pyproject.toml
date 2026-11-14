@@ -1,6 +1,6 @@
 [project]
 name = "pickletime-bot"
-version = "0.1.2"
+version = "0.2.0"
 description = "Books CourtReserve courts the moment they open, run from a Grok Bot"
 readme = "README.md"
 license = { text = "MIT" }
@@ -53,6 +53,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ARG001", "ARG002", "ARG005", "S105", "S106", "S108", "PTH", "E501"]
 "src/pickletime/services/booking.py" = ["E501"]  # JS payloads
+"src/pickletime/services/portal.py" = ["E501"]  # JS payloads
 "src/pickletime/capture.py" = ["E501", "SIM905"]  # JS payloads; the word list
 "scripts/*" = ["E501", "S603", "S607", "PTH", "BLE001"]
 

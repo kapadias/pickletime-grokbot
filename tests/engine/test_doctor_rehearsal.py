@@ -63,3 +63,21 @@ def test_doctor_accepts_the_shipped_configs(config, tmp_path, monkeypatch, capsy
     assert config_lines, out
     assert all(line.startswith("[PASS]") for line in config_lines), out
     assert "verdict:" in out
+
+
+@pytest.mark.e2e
+def test_doctor_fake_portal_rehearsal_books_with_real_chrome(chrome_paths, tmp_path, monkeypatch):
+    binary, driver = chrome_paths
+    monkeypatch.setenv("CHROME_BIN", binary)
+    if driver:
+        monkeypatch.setenv("CHROME_DRIVER_PATH", driver)
+    else:
+        monkeypatch.delenv("CHROME_DRIVER_PATH", raising=False)
+
+    ptbot = _load_ptbot()
+    monkeypatch.setattr(ptbot, "STATE", tmp_path)
+
+    ok, detail = ptbot._fake_portal_rehearsal()
+
+    assert ok, detail
+    assert "booked 6:30 PM for 60 min on the fake portal" in detail

@@ -91,7 +91,7 @@ def test_new_layout_bookings_page_names_the_cause_and_the_capture() -> None:
     settings = BookingSettings(webdriver_timeout=1)
     navigation = NavigationService(driver, waiter_for(driver, 0.2), settings)
 
-    with pytest.raises(NavigationError, match="no Kendo scheduler grid") as excinfo:
+    with pytest.raises(NavigationError, match="neither the Kendo scheduler grid nor the member portal") as excinfo:
         navigation.open_booking_grid()
     assert "run.sh capture --open-slot" in str(excinfo.value)
     assert "Nothing was booked" in str(excinfo.value)

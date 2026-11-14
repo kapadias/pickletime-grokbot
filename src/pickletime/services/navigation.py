@@ -25,10 +25,10 @@ logger = get_logger()
 
 #: The bookings page loaded, but not the calendar this engine knows how to read.
 _NEW_LAYOUT_HINT = (
-    "The bookings page loaded but has no Kendo scheduler grid: CourtReserve has "
-    "moved this facility to a page layout this release cannot read. Nothing was "
-    "booked. Run `run.sh capture --open-slot` and share its summary.txt so the "
-    "engine can be updated."
+    "The bookings page loaded but shows neither the Kendo scheduler grid nor the "
+    "member portal's scheduler: CourtReserve has changed this facility's page "
+    "again. Nothing was booked. Run `run.sh capture --open-slot` and share its "
+    "summary.txt so the engine can be updated."
 )
 
 
@@ -39,6 +39,9 @@ class NavigationService:
         self.driver = driver
         self.waiter = waiter
         self.settings = settings
+        #: "legacy" (Kendo grid) or "portal" (the newer single-page scheduler),
+        #: set once the page has rendered.
+        self.layout: str | None = None
 
     def open_booking_grid(self) -> float:
         """Land on the sport's slot grid. Returns elapsed seconds."""
@@ -46,7 +49,8 @@ class NavigationService:
 
         self.driver.get(self.settings.bookings_url)
         if self._grid_ready():
-            logger.info(f"Booking grid ready in {time.monotonic() - started:.2f}s (direct)")
+            elapsed = time.monotonic() - started
+            logger.info(f"Booking grid ready in {elapsed:.2f}s (direct, {self.layout} layout)")
             return time.monotonic() - started
 
         landed_on_bookings = "/reservations/bookings/" in self._current_url().lower()
@@ -67,13 +71,24 @@ class NavigationService:
             )
 
         elapsed = time.monotonic() - started
-        logger.info(f"Booking grid ready in {elapsed:.2f}s (menu fallback)")
+        logger.info(f"Booking grid ready in {elapsed:.2f}s (menu fallback, {self.layout} layout)")
         return elapsed
 
     # -- internals --------------------------------------------------------
     def _grid_ready(self, timeout: float | None = None) -> bool:
+        """Either layout's scheduler is on screen; records which in ``layout``."""
         limit = self.settings.webdriver_timeout if timeout is None else timeout
-        return self.waiter.find_first(locators.SCHEDULER_GRID, timeout=limit) is not None
+        portal = [("css selector", locators.PORTAL_SCHEDULER)]
+
+        def detect() -> str | None:
+            if self.waiter.match_now(locators.SCHEDULER_GRID) is not None:
+                return "legacy"
+            if self.waiter.match_now(portal) is not None:
+                return "portal"
+            return None
+
+        self.layout = self.waiter.until(detect, timeout=limit)
+        return self.layout is not None
 
     def _navigate_via_menu(self) -> None:
         reservations = self.waiter.find_first(locators.RESERVATIONS_LINK, timeout=5, visible=True)
