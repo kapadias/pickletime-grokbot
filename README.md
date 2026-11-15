@@ -25,20 +25,21 @@
 
 **PickleTime Bot books your pickleball court on CourtReserve the second it is
 released**, from a [Grok Bot](#start), and tells you in your Grok chat. Good
-courts at busy clubs go in seconds at the daily release (noon, eight days ahead,
-at Lifetime Sunnyvale). The bot is already logged in, on the right date and armed
+courts at busy clubs go in seconds at the daily release (a fixed time, a set
+number of days ahead). The bot is already logged in, on the right date and armed
 before the release, then fires on the clock and works through your preferred
-times and durations until it wins.
+times and durations until it wins. You set your club, days and times in a short
+chat with the Bot; no files to edit.
 
-It replaces a Cloud Run service and Cloud Scheduler job with a single Grok Bot:
-no server to run, no cloud bill, and the result arrives as a chat message on
-your phone. Everything it needs is in this repository: the booking engine
+No server to run, no cloud bill: a single Grok Bot does it all, and the result
+arrives as a chat message on your phone. Everything it needs is in this repository: the booking engine
 (`src/pickletime`), the Grok Bot setup, and the scripts that glue them.
 
 | | |
 | --- | --- |
 | ⏱️ **Fires on the second** | Warms up three minutes early, then sprints at the exact release time |
-| 🗓️ **Knows your schedule** | 14-day rotations, weekday-specific windows, priority times, fallback durations |
+| 🗣️ **Your own schedule** | Set up in a short chat: your club, days, times and durations |
+| 🗓️ **Flexible patterns** | Weekly days, longer rotations, weekday-specific windows, fallback durations |
 | 🧪 **Rehearses first** | Starts in dry-run mode; real bookings only after you approve "go live" |
 | 🛡️ **Books once** | A ledger that survives restarts stops a second court on the same date |
 | 💬 **Reports in chat** | `BOOKED`, `NOT BOOKED` or `quiet` on off days, with timings |
@@ -48,14 +49,17 @@ your phone. Everything it needs is in this repository: the booking engine
 
 Open Grok Bot, create a new Bot, and paste:
 
-> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.2.0/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.2.0/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
+> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.3.0/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.3.0/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
 
 The Bot installs Python, the booking engine and Chrome under `/workspace`, then
 books a court on a local fake CourtReserve to prove Chrome works on its
-computer. It asks you for one thing: your CourtReserve email and password,
-added as `USERID` and `PASSWORD` through the secure secret card. It ends with
-your next play dates and a receipt. Nothing is booked yet: the bot starts in
-**rehearsal** mode, where every run stops before confirming.
+computer. It asks for your CourtReserve email and password, added as `USERID`
+and `PASSWORD` through the secure secret card, never in chat. Then it
+**interviews you for your schedule**: your club's booking link, how far ahead
+and when courts open, which days, what times, how long. It shows you the
+result with your next play dates, and saves it only when you tap approve.
+Nothing is booked yet: the bot starts in **rehearsal** mode, where every run
+stops before confirming.
 
 Then say these, in order:
 
@@ -63,12 +67,19 @@ Then say these, in order:
 | --- | --- | --- |
 | **"turn on the routine"** | creates the daily `book` routine (11:15), runs one test, unpauses it | set the Bot's Timezone and Notifications; paste two Auto-review rules |
 | **"show routine timing"** (after a few play days) | how late the routines really started, and the offset it recommends | move the routine if asked |
-| **"go live"** | checks three rehearsals passed and timing is safe, then switches to real bookings | tap approve; pause the Cloud Scheduler job the same day |
-| **"retire Cloud Run"** | gives you the one `gcloud` command to pause the old job | run it on your own machine |
+| **"go live"** | shows the safety checks (rehearsals, timing; you may waive those), then switches to real bookings | tap approve |
 
-Any time: **"status"**, **"did it work?"**, **"run the doctor"**, **"change my
-booking window to ..."**, **"back to rehearsal"**, **"book now"**,
-**"capture the booking page"**.
+Any time: **"show my schedule"**, **"change my schedule"**, **"status"**,
+**"did it work?"**, **"run the doctor"**, **"back to rehearsal"**,
+**"book now"**, **"capture the booking page"**. Moving from an older Cloud Run
+setup? Say **"retire Cloud Run"** for the command that pauses it.
+
+### Already running PickleTime Bot?
+
+Paste this in your Bot's chat. Your schedule, login and booking history are
+kept; it shows your current schedule and asks whether to keep it or change it:
+
+> Update PickleTime Bot to v0.3.0 following section 10 of https://github.com/kapadias/pickletime-grokbot/blob/v0.3.0/SETUP.md, keeping my config and state. Then show my schedule and ask me whether to keep it or change it.
 
 ## How it works
 
@@ -100,27 +111,29 @@ chrome=0.4s login=0.3s navigate=0.1s select_date=2.8s armed_wait=171.2s sprint=0
 REHEARSAL (dry run, nothing saved): Saturday, November 21, 2026: Dry run: 6:30 PM / 60min was available and would have been booked
 ```
 
-### Your schedule, in one file
+### Set your own schedule
 
-Behaviour lives in `/workspace/pickletime-desk/config.yaml`; ask the Bot to
-change it and it shows you the diff first. The keys that matter most:
+Say **"set up my schedule"** (a new bot does this during setup) or **"change my
+schedule"**. The Bot asks a few questions, then shows you exactly what it will
+use before anything changes:
 
-```yaml
-release_time: "12:00 PM"          # when the club releases courts
-days_in_advance: 8                # book this many days out
-search_start_time: "5:30 PM"      # evening window...
-search_end_time: "7:30 PM"
-priority_time_slots: ["6:30 PM", "7:00 PM", "7:30 PM", "5:30 PM"]
-preferred_durations: [60, 30]     # minutes, best first
-rotation:                         # only book on a repeating cycle of dates
-  anchor_date: "08/24/2026"
-  cycle_days: 14
-  play_on_offsets: [3, 7, 11, 12]
-weekday_overrides:                # mornings on Saturday
-  Saturday: { search_start_time: "9:00 AM", search_end_time: "10:30 AM" }
+```text
+PROPOSED schedule (not in use yet):
+  Club: CourtReserve organisation 12345, Pickleball (sport 678) at https://app.courtreserve.com
+  Courts open: 7:00 AM America/New_York, 7 days ahead -> the book routine runs daily at 06:15
+  Play days: every Tuesday, Thursday
+  Times: 6:00 PM-8:00 PM, tries 7:00 PM, 6:30 PM; 60 then 30 min
+  Next play dates:
+    Tue 24 Nov 2026  6:00 PM-8:00 PM   (booked on Tue 17 Nov)
+    Thu 26 Nov 2026  6:00 PM-8:00 PM   (booked on Thu 19 Nov)
+Say 'apply my schedule' to use it, or 'discard the proposal'.
 ```
 
-Every key, with its default: [config/config.sample.yaml](config/config.sample.yaml).
+Your tap applies it, and the previous version is kept as a backup. Weekly days
+are the common case; longer rotations (a 14-day cycle) and different times on
+particular weekdays (Saturday mornings) work too. A fresh bot names no club and
+refuses to book until you set one, so it can never book at somebody else's
+club. Every setting, with its default: [config/config.sample.yaml](config/config.sample.yaml).
 
 ## What protects you
 
@@ -137,7 +150,7 @@ Every key, with its default: [config/config.sample.yaml](config/config.sample.ya
   the engine from that checkout, with Chrome pinned in [pins.env](pins.env), so a
   later push cannot change what books your court.
 - **No double bookings.** The ledger in `/workspace/pickletime-desk/state/`
-  survives the computer's sleeps. If the site ever neither confirms nor refuses,
+  survives the computer's sleeps. If the site ever leaves the outcome unclear,
   the bot reports `UNVERIFIED`, stops, and asks you to check CourtReserve.
 - **Your login stays on the card.** A secret on Grok's card is visible to every
   Bot on that computer, so use a CourtReserve password you use nowhere else.
@@ -159,19 +172,26 @@ Every key, with its default: [config/config.sample.yaml](config/config.sample.ya
 ### How do I automatically book pickleball courts on CourtReserve?
 
 Create a Grok Bot, paste the [Start](#start) prompt, add your CourtReserve login
-through the secret card, and say "turn on the routine". The bot rehearses for a
-few play days, then books for real once you say "go live".
+through the secret card, answer a few questions about your club, days and
+times, and say "turn on the routine". The bot rehearses first, then books for
+real once you say "go live".
+
+### How do I change the days or times it books?
+
+Tell the Bot "change my schedule" and say what is different ("play Wednesdays
+instead of Thursdays", "try 7 PM first"). It shows the new schedule and next
+play dates, and changes nothing until you tap approve.
 
 ### Does it work with the new CourtReserve member portal?
 
-Yes. Version 0.2.0 books on both the older Kendo calendar and the newer
-single-page member portal, and picks the right one automatically.
+Yes. It books on both the older calendar and the newer single-page member
+portal, and picks the right one automatically.
 
 ### Can it book on a rotating or alternating-week schedule?
 
-Yes. `rotation` books only on chosen days of a repeating cycle (a 14-day
-custody rotation, for example), and `weekday_overrides` sets different times
-for particular weekdays.
+Yes. Tell the Bot the pattern: weekly days, or a longer cycle such as 14 days
+where the free weekdays alternate between weeks. Particular weekdays can have
+their own times, too.
 
 ### What happens if the court I want is already taken?
 
@@ -192,9 +212,10 @@ scripts also run on any Linux machine with cron ([SETUP.md](SETUP.md) §12).
 
 ### Which clubs does it support?
 
-Clubs on CourtReserve. It was built and tested for Lifetime Sunnyvale's
-pickleball courts; the facility, sport and court type are settings in
-`config.yaml`.
+Clubs that take bookings through CourtReserve (app.courtreserve.com). You give
+the Bot your club's booking link and it reads the club and sport from it. It
+was built for pickleball and has been used live on a large club's courts; other
+CourtReserve sports are a setting, untested so far.
 
 <details>
 <summary><b>Repository layout</b></summary>

@@ -224,21 +224,25 @@ def test_unknown_keys_in_an_override_are_rejected() -> None:
         BookingSettings(weekday_overrides={"Saturday": {"start_time": "9:00 AM"}})
 
 
-def test_the_shipped_config_books_saturday_mornings_and_weekday_evenings() -> None:
-    """The whole point of the override, asserted against the shipped config template."""
-    from pathlib import Path
+def test_a_rotation_with_saturday_mornings_books_mornings_and_weekday_evenings() -> None:
+    """A 14-day rotation plus a Saturday override: evenings on weekdays, mornings on Saturday.
 
-    import yaml
-
+    (Formerly checked against the shipped template; the template now names no
+    club or schedule, so the same shape is spelled out here.)
+    """
     from pickletime.settings import BookingSettings
 
-    root = Path(__file__).resolve().parents[2]
-    raw = yaml.safe_load((root / "config" / "config.template.yaml").read_text(encoding="utf-8"))
-    settings = BookingSettings(**raw)
+    settings = BookingSettings(
+        search_start_time="5:30 PM", search_end_time="7:30 PM",
+        rotation={"anchor_date": "08/24/2026", "cycle_days": 14, "play_on_offsets": [3, 7, 11, 12]},
+        weekday_overrides={"Saturday": {"search_start_time": "9:00 AM", "search_end_time": "10:30 AM"}},
+    )
     rotation = settings.rotation
     assert rotation is not None
 
-    for day in rotation.next_play_dates(after=date(2026, 8, 24), count=8):
+    days = rotation.next_play_dates(after=date(2026, 8, 24), count=8)
+    assert any(d.strftime("%A") == "Saturday" for d in days)
+    for day in days:
         resolved = settings.for_date(day)
         if day.strftime("%A") == "Saturday":
             assert resolved.search_start_time.hour == 9, day

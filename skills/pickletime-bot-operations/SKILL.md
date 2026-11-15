@@ -1,9 +1,9 @@
 ---
 name: pickletime-bot-operations
-description: Standing instructions for PickleTime Bot after setup - what each owner phrase runs (turn on the routine, show routine timing, go live, status, change my booking window, book now, retire Cloud Run), how routine output is posted, which commands need the owner's tap, and what to do when a run fails or a routine is late. Use for every request after the first run.
+description: Standing instructions for PickleTime Bot after setup - what each owner phrase runs (turn on the routine, show routine timing, go live, status, show or change my schedule, book now, retire Cloud Run), how routine output is posted, which commands need the owner's tap, and what to do when a run fails or a routine is late. Use for every request after the first run.
 license: MIT
 metadata:
-  version: "0.2.0"
+  version: "0.3.0"
   category: booking
 ---
 
@@ -21,9 +21,12 @@ sentence of your own, and never a number the tool did not print.
 | "run the doctor" | `run.sh doctor` (add `--full` to re-prove Chrome on the fake site) |
 | "turn on the routine" | SETUP.md 7.2: create the `book` routine from `routines/manifest.toml`, paused; one Test run; unpause; read it back |
 | "show routine timing" | `run.sh timing`; if it recommends a different offset, offer to move the routine (owner confirms) |
-| "go live" | SETUP.md 7.3: check the prerequisites, then `run.sh go-live --owner-tapped` after the owner taps approve |
+| "go live" | SETUP.md 7.3: show the prerequisites; the owner may waive the rehearsal and timing ones by saying so; then `run.sh go-live --owner-tapped` after the owner taps approve |
 | "back to rehearsal", "pause bookings" | `run.sh rehearse --owner-tapped` after the tap; to stop runs entirely, pause the routine |
-| "change my booking window / days / times" | SETUP.md 7.1: show the diff to `/workspace/pickletime-desk/config.yaml`, write it after the tap, then `run.sh status` |
+| "show my schedule" | `run.sh schedule show` |
+| "change my schedule" (club, days, times, durations, release) | SETUP.md 7.1: ask only about what changes, `run.sh schedule propose --answers '<json>'`, post it; after the tap `run.sh schedule apply --owner-tapped`; move the routine if it says ACTION |
+| "keep my schedule", "discard the proposal" | `run.sh schedule discard` |
+| "set up my schedule" (no club yet) | SETUP.md section 5 interview |
 | "book now", "try again today" | only after the owner's tap: `run.sh book` (a live run if mode is live). Never `--ignore-ledger` unless the owner asks for it by name |
 | "did it work?" | `run.sh report` |
 | "retire Cloud Run" | SETUP.md 9 |
@@ -43,6 +46,7 @@ sentence of your own, and never a number the tool did not print.
 
 | Output | Next step |
 | --- | --- |
+| `... names no club yet` | the schedule was never set up: SETUP.md section 5 |
 | `FAILED: configuration or credentials` | `run.sh doctor`; fix the failing check (a missing secret: ask the owner to re-add it through the card) |
 | `FAILED: the booking computer is not ready` | `bash /workspace/pickletime-grokbot/scripts/install.sh`, then `run.sh doctor --full` |
 | `FAILED for <date>: LoginError ...` | the site rejected the login: the owner checks the password on the card, or whether CourtReserve locked the account |

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0
+
+Anyone can set the bot up for their own club and schedule, and owners can change theirs by chat.
+
+- `run.sh schedule show|propose|apply|discard`: the Bot interviews the owner (club booking link, sport, timezone, how far ahead and when courts open, days, times, durations), proposes a validated schedule with the next play dates and a diff, and installs it only after the owner's tap, keeping a backup. Changing one thing keeps every other key, including advanced ones the interview never asks about. A club link gives the organisation and sport; weekday names become a 7-day rotation; longer rotations and per-weekday times are supported.
+- A fresh bot names no club: the config template is generic, the runner refuses to book until a club is set, and the doctor warns `no club set yet` instead of passing.
+- The daily routine time follows the schedule (`schedule show` names it: release time minus 45 minutes), and `schedule apply` says when the routine must move.
+- After an update the Bot shows the current schedule and asks whether to keep it or change it.
+- On the member portal, a form that closes after Confirm without an error, on the same page, now counts as booked (`inferred`) and is recorded in the ledger: the first live booking showed the portal closes the form quietly on success. A form that stays open or errors is a refusal; one that closes while the page navigates away stays `UNVERIFIED`.
+- "go live": the rehearsal and timing prerequisites are advice the owner may waive.
+- The README, template and sample config no longer carry one owner's club or rotation.
+
 ## 0.2.0
 
 Booking works on CourtReserve's member portal, the layout Lifetime Sunnyvale moved to in November 2026. Built from two scrubbed live captures.

@@ -5,6 +5,7 @@
 #   bash /workspace/pickletime-grokbot/scripts/run.sh report
 #   bash /workspace/pickletime-grokbot/scripts/run.sh status | timing | doctor [--full]
 #   bash /workspace/pickletime-grokbot/scripts/run.sh capture [--open-slot]
+#   bash /workspace/pickletime-grokbot/scripts/run.sh schedule show|propose --answers JSON|apply --owner-tapped
 #   bash /workspace/pickletime-grokbot/scripts/run.sh go-live --owner-tapped
 #
 # Before 'book', 'doctor' and 'capture' it re-checks what a computer sleep can take away
@@ -16,8 +17,8 @@ set -euo pipefail
 
 cmd="${1:-}"
 case "$cmd" in
-  book|report|status|timing|doctor|capture|go-live|rehearse) ;;
-  *) echo "usage: run.sh {book|report|status|timing|doctor|capture|go-live|rehearse} [options]" >&2; exit 2 ;;
+  book|report|status|timing|doctor|capture|schedule|go-live|rehearse) ;;
+  *) echo "usage: run.sh {book|report|status|timing|doctor|capture|schedule|go-live|rehearse} [options]" >&2; exit 2 ;;
 esac
 
 if [ "$cmd" = "book" ] || [ "$cmd" = "doctor" ] || [ "$cmd" = "capture" ]; then

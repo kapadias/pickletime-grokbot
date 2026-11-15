@@ -12,11 +12,12 @@ built from scrubbed captures of the live page (``run.sh capture --open-slot``):
   slot's date and time, a duration combobox, a disclosure checkbox, and
   Confirm (``reservation-mobile-submit-btn``).
 
-What the site does after Confirm has not yet been seen live. So a booking
-counts as confirmed only when a message says so; a form that closes silently
-is reported as unverified (the run stops rather than risk a second court),
-and every outcome records the page's messages so the first real booking
-teaches us the site's confirmation.
+After Confirm: a message saying so is an explicit confirmation; a form that
+closes without an error on the same page is a booking too (``inferred``: the
+first live booking showed the portal closes the form quietly on success). A
+form that stays open, or shows an error, is a refusal; a form that closes
+while the page navigates elsewhere is reported unverified and stops the run.
+Every Confirm logs what the page showed.
 
 The plan (which times, which durations, in what order) and the sprint loop are
 inherited from :class:`BookingService`; only the site-specific steps differ.
@@ -431,6 +432,7 @@ class PortalBookingService(BookingService):
 
         before = self._messages()
         stale = set(before.get("toasts", [])) | set(before.get("formErrors", []))
+        page_before = str(before.get("url") or "").split("?", 1)[0]
         self.waiter.click(button, "Confirm")
         logger.info(f"Confirmed {candidate}; waiting for the site's answer")
 
@@ -460,12 +462,23 @@ class PortalBookingService(BookingService):
                     break
             self.waiter.sleep(self.settings.poll_interval_ms / 1000.0)
 
-        self._log_first_confirm(candidate, "no verdict", self._modal_open(), last)
         if self._modal_open():
+            self._log_first_confirm(candidate, "no verdict, form still open", True, last)
             logger.warning(f"{candidate.label}: the form is still open {max(self.settings.webdriver_timeout, 10)}s after Confirm")
             self._close_modal()
             return SlotOutcome.REJECTED
-        return self._unverified(candidate, "the form closed after Confirm with no message either way")
+        page_after = str(last.get("url") or "").split("?", 1)[0]
+        if page_after != page_before:
+            self._log_first_confirm(candidate, "form closed and the page changed", False, last)
+            return self._unverified(candidate, f"the form closed after Confirm and the page moved to {page_after}")
+        # Observed live (Nov 2026): a successful booking closes the form with no
+        # toast. Cancel is never pressed here, a refusal keeps the form open or
+        # shows an error (both handled above), so a quiet close on the same
+        # page is the portal's success.
+        self._log_first_confirm(candidate, "form closed without an error (counted as booked)", False, last)
+        logger.success(f"BOOKED {candidate} - the form closed after Confirm without an error")
+        self._remember(candidate, "inferred", "the form closed after Confirm without an error")
+        return SlotOutcome.BOOKED
 
     def _log_first_confirm(self, candidate: SlotCandidate, verdict: str, still_open: bool, messages: dict[str, Any]) -> None:
         """What the site showed after Confirm, recorded once per run.

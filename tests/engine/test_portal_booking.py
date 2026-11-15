@@ -159,3 +159,32 @@ def test_takes_the_new_day_the_moment_it_is_released(make_settings, chrome_paths
             result = service.sprint(service.build_plan(target), deadline=waiter.now() + 6)
     assert result.booked is True, result.detail
     assert state.bookings == [{"date": target.isoformat(), "slot": "7:00 PM", "duration": "60"}]
+
+
+@pytest.mark.e2e
+def test_a_quiet_close_after_confirm_is_a_booking_and_is_recorded(make_settings, chrome_paths, tmp_path):
+    """What the live portal did on the first real booking: no toast, form closes."""
+    from pickletime.ledger import BookingLedger
+
+    settings = _settings(make_settings, chrome_paths)
+    target = settings.booking.target_date()
+    state = PortalState(today=target - timedelta(days=8), silent_success=True,
+                        open_slots={target: {"6:30 PM": 2}})
+    ledger = BookingLedger(tmp_path / "ledger.json")
+    with FakePortal(state) as site:
+        bot_settings = _settings(make_settings, chrome_paths, base_url=site.base_url)
+        report = CourtBookingBot(bot_settings, ledger=ledger).run()
+        assert report.booked is True, report.detail
+        assert report.confirmation == "inferred"
+        # Recorded, so a second run for the date books nothing more.
+        again = CourtBookingBot(bot_settings, ledger=ledger).run()
+    assert again.skipped_reason == "already booked (ledger)"
+    assert state.bookings == [{"date": target.isoformat(), "slot": "6:30 PM", "duration": "60"}]
+
+
+@pytest.mark.e2e
+def test_a_close_that_navigates_away_stays_unverified(make_settings, chrome_paths):
+    report, state, _ = _run(make_settings, chrome_paths, state_kwargs={"navigate_after_confirm": True})
+    assert report.booked is False
+    assert report.confirmation == "unverified"
+    assert len(state.bookings) == 1  # the site did book; the bot says it cannot tell, and stops

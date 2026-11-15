@@ -12,13 +12,13 @@
 # ---------------------------------------------------------------------------
 # Facility
 # ---------------------------------------------------------------------------
-organization_id: 13233          # your club's CourtReserve org ID
-sport_id: 16984                 # 16984 = pickleball at that org
+organization_id: 12345          # the number in your club's booking link: .../Bookings/12345?sId=678
+sport_id: 678                   # the sId=... in that link
 sport_name: "Pickleball"
 court_type: "Pickleball"
 # Appears in the grid slot URLs as courtTypeId. Optional — slot matching keys on
 # the start time and scheduler id — but it makes the fast path hit.
-court_type_id: 9
+# court_type_id: 9              # club-specific; leave unset unless told otherwise
 base_url: "https://app.courtreserve.com"
 
 # ---------------------------------------------------------------------------
@@ -61,12 +61,13 @@ priority_time_slots:
 # outside the cycle is skipped before Chrome starts, and reports success rather
 # than a failure. Omit this block to book every day.
 #
-# Use it when the pattern does not repeat weekly and so cannot go in the cron
-# expression — a 2-2-3 childcare rotation repeats every 14 days, and which
-# weekdays are free alternates between the two weeks.
+# A weekly pattern is a 7-day cycle anchored on a Monday (offsets 0 = Monday to
+# 6 = Sunday); "set up my schedule" writes it for you from weekday names. Longer
+# cycles cover patterns that alternate between weeks, such as a 14-day shift or
+# custody rotation in which the free weekdays differ between the two weeks.
 #
 # Offsets are counted in days from anchor_date, which is day 0. Verify with
-# `pickletime --print-config`, which prints the next dates and when each fires;
+# `run.sh schedule show`, which prints the next dates and when each fires;
 # an anchor that is off by a day is otherwise invisible until a court is booked
 # on the wrong evening.
 # rotation:

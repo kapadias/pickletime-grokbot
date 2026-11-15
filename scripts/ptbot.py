@@ -9,6 +9,9 @@ paths from ``env.sh`` in place. Subcommands:
   report                           today's outcome, for a detached run
   status                           mode, next play dates, recent runs, ledger
   timing                           how late routines actually started
+  schedule show|propose|apply|discard
+                                   your schedule in plain words; a change from
+                                   interview answers (JSON); apply needs the tap
   capture [--open-slot]            log in and record the site's structure,
                                    scrubbed, for fixing the engine; never books
   doctor [--full]                  readiness checks; --full also books a court
@@ -163,7 +166,9 @@ def verdict_line(result: dict[str, Any]) -> str:
     if result.get("booked"):
         what = f"{result.get('time')} for {result.get('duration')} min"
         verb = "would book" if rehearsal else "BOOKED"
-        return f"{prefix}{verb} {day} at {what} ({result.get('confirmation')} confirmation)"
+        how = ("the site closed the form without an error" if result.get("confirmation") == "inferred"
+               else f"{result.get('confirmation')} confirmation")
+        return f"{prefix}{verb} {day} at {what} ({how})"
     if rehearsal:
         # The engine reports a dry run as not booked; its detail says what it found.
         return f"{prefix}{day}: {result.get('detail') or 'nothing available in your window'}"
@@ -288,9 +293,27 @@ def _configure_engine_logging(tag: str) -> Path:
     return log_file
 
 
+def _raw_config(path: Path | None = None) -> dict[str, Any]:
+    import yaml
+
+    target = path or CONFIG
+    if not target.is_file():
+        return {}
+    loaded = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def _load_settings(*, dry_run: bool | None, require_credentials: bool = True) -> Any:
+    from pickletime.errors import ConfigurationError
+    from pickletime.schedule import has_facility
     from pickletime.settings import load_settings
 
+    # The engine has a default club; a schedule must name its own, or a fresh
+    # bot would book at whichever club the defaults point to.
+    if not has_facility(_raw_config()):
+        raise ConfigurationError(
+            f"{CONFIG} names no club yet. Say 'set up my schedule' to choose your club, days and times."
+        )
     overrides = {"dry_run": True} if dry_run else None
     return load_settings(CONFIG, overrides, require_credentials=require_credentials)
 
@@ -633,13 +656,19 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         _check(results, "chrome", False, "Chrome for Testing missing; run scripts/install.sh")
 
     # 4. Config.
+    from pickletime.schedule import has_facility
+
     settings = None
-    try:
-        settings = _load_settings(dry_run=None, require_credentials=False)
-        b = settings.booking
-        _check(results, "config", True, f"{CONFIG}: release {b.release_time}, {b.timezone}, {b.days_in_advance} days ahead")
-    except Exception as exc:
-        _check(results, "config", False, str(exc).splitlines()[0])
+    if not has_facility(_raw_config()):
+        _check(results, "config", None, "no club set yet; say 'set up my schedule' (nothing can book until then)")
+    else:
+        try:
+            settings = _load_settings(dry_run=None, require_credentials=False)
+            b = settings.booking
+            _check(results, "config", True, f"{CONFIG}: club {b.organization_id}, sport {b.sport_id}, release "
+                   f"{b.release_time}, {b.timezone}, {b.days_in_advance} days ahead")
+        except Exception as exc:
+            _check(results, "config", False, str(exc).splitlines()[0])
 
     # 5. Credentials.
     try:
@@ -755,6 +784,124 @@ def _fake_portal_rehearsal() -> tuple[bool, str]:
 
 
 # ---------------------------------------------------------------------------
+# schedule: show, propose, apply, discard
+# ---------------------------------------------------------------------------
+PROPOSALS = DESK / "proposals"
+BACKUPS = DESK / "backups"
+PROPOSED = PROPOSALS / "config.proposed.yaml"
+
+
+def _today() -> Any:
+    from pickletime.timeutil import get_timezone, now_in
+
+    tz = _raw_config().get("timezone") or "America/Los_Angeles"
+    return now_in(get_timezone(str(tz))).date()
+
+
+def cmd_schedule(args: argparse.Namespace) -> int:
+    return {"show": _schedule_show, "propose": _schedule_propose, "apply": _schedule_apply,
+            "discard": _schedule_discard}[args.action](args)
+
+
+def _schedule_show(_args: argparse.Namespace) -> int:
+    from pickletime.schedule import describe
+
+    print(f"mode: {read_mode()}  (rehearsal = dry runs only; live = real bookings)")
+    try:
+        for line in describe(_raw_config(), _today()):
+            print(line)
+    except Exception as exc:
+        print(f"FAILED: {CONFIG} is not a valid schedule: {str(exc).splitlines()[0]}")
+        return EXIT_CONFIG
+    if PROPOSED.is_file():
+        print("A proposed change is waiting: say 'apply my schedule' or 'discard the proposal'.")
+    return EXIT_OK
+
+
+def _schedule_propose(args: argparse.Namespace) -> int:
+    from pickletime.schedule import ScheduleError, build_config, config_diff, describe, dump_config
+
+    raw = args.answers
+    if raw.startswith("@"):
+        raw = Path(raw[1:]).read_text(encoding="utf-8")
+    try:
+        answers = json.loads(raw)
+        if not isinstance(answers, dict):
+            raise ValueError("answers must be a JSON object")
+    except ValueError as exc:
+        print(f"FAILED: the answers are not valid JSON: {exc}")
+        return EXIT_CONFIG
+
+    current = _raw_config()
+    try:
+        config, warnings = build_config(current, answers)
+    except ScheduleError as exc:
+        print(f"FAILED: {exc}")
+        return EXIT_CONFIG
+
+    text = dump_config(config)
+    PROPOSALS.mkdir(parents=True, exist_ok=True)
+    PROPOSED.write_text(text, encoding="utf-8")
+    print("PROPOSED schedule (not in use yet):")
+    for line in describe(config, _today()):
+        print(f"  {line}")
+    for warning in warnings:
+        print(f"note: {warning}")
+    changes = config_diff(CONFIG.read_text(encoding="utf-8") if CONFIG.is_file() else "", text)
+    if changes:
+        print("changes to config.yaml:")
+        for line in changes[:60]:
+            print(f"  {line}")
+    else:
+        print("no change from the current schedule")
+    print("Say 'apply my schedule' to use it, or 'discard the proposal'.")
+    return EXIT_OK
+
+
+def _schedule_apply(args: argparse.Namespace) -> int:
+    from pickletime.schedule import build_config, describe, routine_slot
+
+    if not args.owner_tapped:
+        print("refused: changing the schedule needs the owner's approval (--owner-tapped after their tap)")
+        return EXIT_CONFIG
+    if not PROPOSED.is_file():
+        print("FAILED: no proposed schedule; say 'change my schedule' first")
+        return EXIT_CONFIG
+    proposed = _raw_config(PROPOSED)
+    try:
+        build_config(proposed, {})  # re-validate exactly what will be installed
+    except Exception as exc:
+        print(f"FAILED: the proposal is no longer valid: {exc}")
+        return EXIT_CONFIG
+
+    before = _raw_config()
+    if CONFIG.is_file():
+        BACKUPS.mkdir(parents=True, exist_ok=True)
+        backup = BACKUPS / f"config-{_now_utc():%Y%m%dT%H%M%SZ}.yaml"
+        backup.write_text(CONFIG.read_text(encoding="utf-8"), encoding="utf-8")
+        print(f"previous schedule kept in {backup}")
+    CONFIG.write_text(PROPOSED.read_text(encoding="utf-8"), encoding="utf-8")
+    PROPOSED.unlink()
+    print("APPLIED. Your schedule is now:")
+    for line in describe(proposed, _today()):
+        print(f"  {line}")
+    old_slot, new_slot = routine_slot(before.get("release_time")), routine_slot(proposed.get("release_time"))
+    if old_slot != new_slot:
+        print(f"ACTION: move the daily book routine to {new_slot or 'any time of day'} "
+              f"(it was set for {old_slot or 'no release time'}), with --slot {new_slot} in its prompt.")
+    return EXIT_OK
+
+
+def _schedule_discard(_args: argparse.Namespace) -> int:
+    if PROPOSED.is_file():
+        PROPOSED.unlink()
+        print("proposal discarded; the current schedule is unchanged")
+    else:
+        print("quiet - no proposal to discard")
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
 # mode switches (owner authority)
 # ---------------------------------------------------------------------------
 def _set_mode(args: argparse.Namespace, mode: str) -> int:
@@ -789,6 +936,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("report", help="today's outcome").set_defaults(func=cmd_report)
     sub.add_parser("status", help="mode, play dates, recent runs").set_defaults(func=cmd_status)
     sub.add_parser("timing", help="routine lateness").set_defaults(func=cmd_timing)
+
+    schedule = sub.add_parser("schedule", help="show, propose, apply or discard a schedule")
+    schedule.add_argument("action", choices=["show", "propose", "apply", "discard"])
+    schedule.add_argument("--answers", default="{}", help="propose: JSON answers, or @file")
+    schedule.add_argument("--owner-tapped", action="store_true", help="apply: the owner approved")
+    schedule.set_defaults(func=cmd_schedule)
 
     capture = sub.add_parser("capture", help="record the booking site's structure (never books)")
     capture.add_argument("--open-slot", action="store_true", help="also open one slot's booking form, then close it")

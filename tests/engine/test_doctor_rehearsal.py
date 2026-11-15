@@ -61,7 +61,12 @@ def test_doctor_accepts_the_shipped_configs(config, tmp_path, monkeypatch, capsy
     out = capsys.readouterr().out
     config_lines = [line for line in out.splitlines() if "] config:" in line]
     assert config_lines, out
-    assert all(line.startswith("[PASS]") for line in config_lines), out
+    if config == "config.template.yaml":
+        # A fresh bot names no club: a warning that says what to do, never a pass.
+        assert config_lines == ["[WARN] config: no club set yet; say 'set up my schedule' "
+                                "(nothing can book until then)"], out
+    else:
+        assert all(line.startswith("[PASS]") for line in config_lines), out
     assert "verdict:" in out
 
 

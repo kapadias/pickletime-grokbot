@@ -9,7 +9,7 @@ phrase the owner says. Steps marked **You** are the owner's alone.
 
 | Path | What it is |
 | --- | --- |
-| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.2.0`; never edited |
+| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.3.0`; never edited |
 | `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/` (Chrome, Python, the installed engine) |
 | `/workspace/.pickletime-secrets/courtreserve.env` | only if the owner chooses a file instead of the secret card (mode 0600) |
 
@@ -24,7 +24,7 @@ unless it says otherwise; it is written `run.sh` for short.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.2.0 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch v0.3.0 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
 If the tag does not exist, stop and tell the owner. An existing checkout stays
@@ -82,10 +82,46 @@ when both exist.
 
 Then `run.sh doctor`. Expect `[PASS] credentials: USERID s***k@...` and `verdict: PASS`.
 
-## 5. Show the plan
+## 5. Set up the schedule
 
-`run.sh status` prints the mode, `release_time`, and the next six play dates
-with the day each fires. **You:** check them against your calendar.
+A fresh bot names no club, and refuses to book until it does. Interview the
+owner in plain words, one short question at a time, offering the default in
+brackets:
+
+1. **Club:** "Open your club's court booking page in CourtReserve (the one for
+   your sport) and paste its address." It looks like
+   `https://app.courtreserve.com/Online/Reservations/Bookings/12345?sId=678`.
+2. **Sport name** as the club writes it [Pickleball], and the club's
+   **timezone** [America/Los_Angeles].
+3. **When courts open:** how many days ahead members may book [7], and the time
+   the furthest day opens [12:00 PM] (or "rolling" if there is no fixed time).
+4. **Days:** which weekdays to play ("Monday and Thursday", or "every day"). For
+   a pattern that alternates between weeks, ask for a start Monday, the cycle
+   length and which days of the cycle.
+5. **Times:** the window to search ("6 to 8 PM"), the preferred start times in
+   order, and the durations in order [60 then 30 minutes]. Ask whether any
+   weekday needs different times (Saturday mornings, say).
+
+Turn the answers into JSON (keys in `src/pickletime/schedule.py`'s docstring)
+and propose it. Nothing live changes:
+
+```text
+run.sh schedule propose --answers '{"facility_url": "https://app.courtreserve.com/Online/Reservations/Bookings/12345?sId=678", "timezone": "America/New_York", "release_time": "7:00 AM", "days_in_advance": 7, "play_days": ["Tuesday", "Thursday"], "window": {"start": "6:00 PM", "end": "8:00 PM"}, "priority_times": ["7:00 PM", "6:30 PM"], "durations": [60, 30]}'
+```
+
+It prints the schedule in plain words, the next six play dates with the day
+each is booked, any notes (a preferred time outside the window, say) and the
+changes. Post it verbatim and ask the owner to check the dates against their
+calendar. A `FAILED:` line says which answer to fix; ask again. When the owner
+taps approve:
+
+```text
+run.sh schedule apply --owner-tapped
+```
+
+The previous config is kept in `/workspace/pickletime-desk/backups/`.
+`run.sh schedule show` describes the schedule at any time, including the time
+the daily routine must run (the release time minus 45 minutes).
 
 ## 6. Return the receipt
 
@@ -97,13 +133,21 @@ Setup booked nothing: mode is rehearsal; your CourtReserve login was added by yo
 
 ## 7. When the owner asks for more
 
-### 7.1 "change my booking window" (or days, times, durations)
+### 7.1 "show my schedule", "change my schedule"
 
-Show the change as a diff to `/workspace/pickletime-desk/config.yaml`; write it
-only after the owner taps approve on the Ask-first card; then `run.sh status`
-and post the new play dates and windows. Every key, its default and its
-meaning: `config/config.sample.yaml` in the checkout. If `release_time` changes, the `book` routine moves with it (release_time minus
-the offset from 7.2).
+`run.sh schedule show` describes the current schedule. To change it, ask only
+about what the owner wants different and propose just those answers; every
+other key, including advanced ones the interview never asks about, is kept:
+
+```text
+run.sh schedule propose --answers '{"priority_times": ["7:00 PM", "6:30 PM"]}'
+```
+
+Post the result; after the owner's tap, `run.sh schedule apply --owner-tapped`.
+"keep my schedule" or "discard the proposal": `run.sh schedule discard`. If
+`apply` prints `ACTION: move the daily book routine to HH:MM`, edit the `book`
+routine's time and its `--slot` to match, and read it back. Every key, its
+default and meaning: `config/config.sample.yaml`.
 
 ### 7.2 "turn on the routine"
 
@@ -129,14 +173,16 @@ the offset from 7.2).
    rule. A routine that stops to ask for approval at 11:15 cannot book, which is
    why the Allow rule matters.
 4. **Create the `book` routine, paused**, from `routines/manifest.toml`: daily,
-   at its `slot` (11:15 for a 12:00 PM release), prompt exactly:
+   at the time `run.sh schedule show` names ("the book routine runs daily at
+   HH:MM": the release time minus 45 minutes; 11:15 for a 12:00 PM release),
+   prompt exactly, with that time:
 
    ```text
    Run bash /workspace/pickletime-grokbot/scripts/run.sh book --slot 11:15 and post its output verbatim.
    ```
 
-   Read it back. Daily, because the 14-day rotation cannot be written as a
-   weekly schedule; an off-day ends in seconds with one `quiet` line.
+   Read it back. Daily even for a weekly pattern: off-days end in seconds with
+   one `quiet` line, and rotations longer than a week need it.
 5. **One Test run.** Run the routine once now. What it posts depends on the
    day and the hour, and each one is a pass:
    - an off-day: `quiet - ...`, in seconds;
@@ -158,7 +204,10 @@ flow against the live CourtReserve and stops before Save.
 
 ### 7.3 "go live"
 
-Prerequisites, each checked and shown to the owner:
+Prerequisites, each checked and shown to the owner. 1 and 2 are advice: the
+owner may waive them by saying so plainly ("go live now, no more
+rehearsals"); record that in the reply. 3 is not optional while the old service
+can still book:
 
 1. at least three play-day rehearsals with a REHEARSAL verdict (`run.sh status`
    lists recent runs), so the flow is proven against the live site;
@@ -177,16 +226,14 @@ run.sh go-live --owner-tapped
 It prints `mode: rehearsal -> live`. From the next play day, a found slot is
 booked for real. `run.sh rehearse --owner-tapped` goes back.
 
-**The first live booking on the member portal.** What CourtReserve shows after
-Confirm on its newer layout has not been observed yet, so the engine treats a
-booking as confirmed only when a message says so. If the form just closes, the
-verdict is `UNVERIFIED ...: check your reservations in CourtReserve now`, and
-the run stops so it cannot book a second court. Either way the output carries
-a line starting `Site's answer after Confirm`. Recommend a supervised first
-booking: in live mode, after the owner's tap, `run.sh book` for a slot the
-owner actually wants, while they watch CourtReserve. Then ask the owner to
-check the reservation exists and to share the `Site's answer` line, so the
-engine can recognise the confirmation from then on.
+**Confirmation on the member portal.** A message saying the reservation was
+made is an explicit confirmation. A form that closes after Confirm without an
+error, on the same page, also counts as booked ("the site closed the form
+without an error"): the first live booking showed the portal closes the form
+quietly on success. A form that stays open or shows an error is a refusal. A
+form that closes while the page moves elsewhere is `UNVERIFIED`, and the run
+stops so it cannot book a second court. Every run that presses Confirm prints a
+line starting `Site's answer after Confirm`; keep it in the reply.
 
 ## 8. If routines are cut off (detached mode)
 
@@ -220,10 +267,16 @@ Google Cloud access, and should not.
 
 ## 10. Updating
 
-A new release changes the engine, `pins.env` (Chrome) and the skills. Ask the Bot: "update PickleTime Bot to vX.Y.Z". It clones the new tag
-next to the old one, runs `install.sh` and `doctor --full` from the new
-checkout, and after the owner's tap swaps the directories. `config.yaml`,
-`state/` and the secrets are never touched.
+A new release changes the engine, `pins.env` (Chrome) and the skills. Ask the
+Bot: "update PickleTime Bot to vX.Y.Z". It clones the new tag next to the old
+one, runs `install.sh` and `doctor --full` from the new checkout, and after the
+owner's tap swaps the directories. `config.yaml`, `state/` and the secrets are
+never touched.
+
+After an update, run `run.sh schedule show`, post it, and ask the owner: keep
+this schedule, or change it? "Keep" changes nothing. "Change" follows 7.1. If
+the routine's time no longer matches what `schedule show` names, offer to move
+it.
 
 ## 11. Troubleshooting
 

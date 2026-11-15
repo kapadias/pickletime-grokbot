@@ -8,13 +8,14 @@ schema_version = 1
 [[routine]]
 id = "book"
 required = true
-# release_time (12:00 PM) minus 45 minutes. Grok routines have been reported
-# to start 10-37 minutes late, so the routine starts early and the bot itself
-# holds until 3 minutes before release. Move it after reading "show routine
-# timing" (SETUP.md 7), never closer than release_time minus 15 minutes.
+# The owner's release_time minus 45 minutes: `run.sh schedule show` names it
+# ("the book routine runs daily at HH:MM"); 11:15 is for a 12:00 PM release.
+# Grok routines have been reported to start 10-37 minutes late, so the routine
+# starts early and the bot holds until 3 minutes before release. Move it after
+# "show routine timing" (SETUP.md 7), never closer than release minus 15 min.
 slot = "11:15"
 days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-why_daily = "the 14-day rotation cannot be expressed weekly; off-days end in seconds with 'quiet'"
+why_daily = "rotations may be longer than a week; off-days end in seconds with 'quiet'"
 prompt = "Run bash /workspace/pickletime-grokbot/scripts/run.sh book --slot {slot} and post its output verbatim."
 # If 'show routine timing' reports runs cut off, switch to this prompt and add
 # the report routine below (SETUP.md 8):

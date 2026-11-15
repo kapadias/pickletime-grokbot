@@ -64,6 +64,10 @@ class PortalState:
     reject_message: str | None = None
     #: Refuse only these slot labels.
     reject_slots: set[str] = field(default_factory=set)
+    #: On success, close the form without any message (what the live portal did).
+    silent_success: bool = False
+    #: On success, navigate away instead of staying on the scheduler.
+    navigate_after_confirm: bool = False
     bookings: list[dict[str, str]] = field(default_factory=list)
     reads: list[str] = field(default_factory=list)
 
@@ -143,6 +147,8 @@ let maxDate = new Date(TODAY);
 const LOAD_DELAY = __LOAD_DELAY__;
 const DURATIONS_BY_SLOT = __DURATIONS_BY_SLOT__;
 const MODAL_OFFSET = __MODAL_OFFSET__;
+const SILENT = __SILENT__;
+const NAVIGATE = __NAVIGATE__;
 
 function fmtLabel(d) {
   return d.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
@@ -232,7 +238,8 @@ document.getElementById('confirm').addEventListener('click', async () => {
   const body = await r.json();
   if (body.status === 'ok') {
     closeModal();
-    document.getElementById('messages').innerHTML = '<div class="toast" role="status">Reservation created successfully</div>';
+    if (NAVIGATE) { location.href = '/Online/Portal/Index/13233'; return; }
+    if (!SILENT) document.getElementById('messages').innerHTML = '<div class="toast" role="status">Reservation created successfully</div>';
     load();
   } else {
     const err = document.getElementById('formerror'); err.textContent = body.message; err.classList.remove('hidden');
@@ -296,6 +303,8 @@ class _Handler(BaseHTTPRequestHandler):
                 .replace("__LOAD_DELAY__", str(self.state.load_delay_ms))
                 .replace("__DURATIONS_BY_SLOT__", json.dumps(self.state.durations_by_slot))
                 .replace("__MODAL_OFFSET__", str(self.state.modal_time_offset_min))
+                .replace("__SILENT__", json.dumps(self.state.silent_success))
+                .replace("__NAVIGATE__", json.dumps(self.state.navigate_after_confirm))
             )
             self._send(page)
             return
