@@ -68,6 +68,18 @@ class PortalState:
     silent_success: bool = False
     #: On success, navigate away instead of staying on the scheduler.
     navigate_after_confirm: bool = False
+    #: What Confirm does: "normal"; "needs_second_click" (the first press is
+    #: lost); "busy" (button loading for busy_ms, then books); "extra_dialog"
+    #: (a second "you will be charged" dialog opens; nothing is booked);
+    #: "noop" (nothing ever happens).
+    confirm_mode: str = "normal"
+    busy_ms: int = 0
+    #: The server takes this long to answer a booking, with no busy state shown.
+    book_delay_ms: int = 0
+    #: Booking requests counted as they arrive (before any delay).
+    book_requests: int = 0
+    #: Slot labels whose reservation form was opened, in order.
+    forms_opened: list[str] = field(default_factory=list)
     bookings: list[dict[str, str]] = field(default_factory=list)
     reads: list[str] = field(default_factory=list)
 
@@ -149,6 +161,9 @@ const DURATIONS_BY_SLOT = __DURATIONS_BY_SLOT__;
 const MODAL_OFFSET = __MODAL_OFFSET__;
 const SILENT = __SILENT__;
 const NAVIGATE = __NAVIGATE__;
+const CONFIRM_MODE = __CONFIRM_MODE__;
+const BUSY_MS = __BUSY_MS__;
+let confirmPresses = 0;
 
 function fmtLabel(d) {
   return d.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
@@ -195,6 +210,7 @@ async function load() {
 }
 function openModal(ms) {
   selected = ms;
+  fetch('/api/portal/opened?slot=' + encodeURIComponent(clock(ms)));
   document.getElementById('dt-day').textContent = new Date(ms).toLocaleDateString('en-US', {weekday: 'long'});
   const shown = ms + MODAL_OFFSET * 60000;
   document.getElementById('dt-tile').textContent = new Date(shown).toLocaleDateString('en-US', {month: 'short'}).toUpperCase() + ' ' + new Date(shown).getDate();
@@ -229,6 +245,23 @@ document.getElementById('disclosure').addEventListener('click', (e) => {
 document.getElementById('xclose').addEventListener('click', closeModal);
 document.getElementById('backclose').addEventListener('click', closeModal);
 document.getElementById('confirm').addEventListener('click', async () => {
+  confirmPresses++;
+  if (CONFIRM_MODE === 'noop') return;
+  if (CONFIRM_MODE === 'needs_second_click' && confirmPresses === 1) return;
+  if (CONFIRM_MODE === 'extra_dialog') {
+    const d = document.createElement('div');
+    d.className = 'ant-modal-confirm'; d.setAttribute('role', 'alertdialog');
+    d.style.cssText = 'position:fixed;top:40px;left:40px;background:#fff;padding:12px;z-index:2000';
+    d.innerHTML = '<p>You will be charged $6.50. Continue?</p><button>Cancel</button><button>OK</button>';
+    document.body.appendChild(d);
+    return;
+  }
+  if (CONFIRM_MODE === 'busy') {
+    const b = document.getElementById('confirm');
+    b.disabled = true; b.classList.add('ant-btn-loading');
+    await new Promise(r => setTimeout(r, BUSY_MS));
+    b.disabled = false; b.classList.remove('ant-btn-loading');
+  }
   if (document.getElementById('disclosure').getAttribute('aria-checked') !== 'true') {
     const err = document.getElementById('formerror'); err.textContent = 'Please accept the disclosure.'; err.classList.remove('hidden');
     return;
@@ -305,8 +338,14 @@ class _Handler(BaseHTTPRequestHandler):
                 .replace("__MODAL_OFFSET__", str(self.state.modal_time_offset_min))
                 .replace("__SILENT__", json.dumps(self.state.silent_success))
                 .replace("__NAVIGATE__", json.dumps(self.state.navigate_after_confirm))
+                .replace("__CONFIRM_MODE__", json.dumps(self.state.confirm_mode))
+                .replace("__BUSY_MS__", str(self.state.busy_ms))
             )
             self._send(page)
+            return
+        if url.path == "/api/portal/opened":
+            self.state.forms_opened.append(parse_qs(url.query).get("slot", [""])[0])
+            self._send("{}", content_type="application/json")
             return
         if url.path.startswith("/Online/AjaxController/BookingWindowStatus"):
             ahead = self.state.days_ahead if self.state.released else self.state.days_ahead - 1
@@ -360,6 +399,11 @@ class _Handler(BaseHTTPRequestHandler):
                 self._redirect(f"/Online/Account/LogIn/{ORG_ID}?failed=1")
             return
         if url.path == "/api/portal/book":
+            self.state.book_requests += 1
+            if self.state.book_delay_ms:
+                import time  # noqa: PLC0415
+
+                time.sleep(self.state.book_delay_ms / 1000)
             payload = json.loads(raw or "{}")
             moment = datetime.fromtimestamp(int(payload["start"]) / 1000)
             label = moment.strftime("%-I:%M %p")

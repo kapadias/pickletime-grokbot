@@ -26,10 +26,14 @@ inherited from :class:`BookingService`; only the site-specific steps differ.
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
 import time
 from collections.abc import Sequence
 from datetime import date as date_type
+from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from ..core import locators
@@ -184,6 +188,72 @@ return out;
 """
 
 
+#: How long to keep waiting after Confirm while the form is visibly busy.
+CONFIRM_BUSY_CAP_SECONDS = 45
+#: With no activity at all this long after Confirm, press it once more.
+CONFIRM_RETRY_AFTER_SECONDS = 5
+
+#: Counts the page's own requests as they start and finish, so "Confirm did
+#: nothing" can be told apart from "Confirm's request is still on its way".
+_JS_NET_WATCH = """
+if (!window.__ptNet) {
+  var net = window.__ptNet = {started: 0, inflight: 0};
+  var origFetch = window.fetch;
+  if (origFetch) {
+    window.fetch = function () {
+      net.started++; net.inflight++;
+      return origFetch.apply(this, arguments).finally(function () { net.inflight--; });
+    };
+  }
+  var send = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function () {
+    net.started++; net.inflight++;
+    this.addEventListener('loadend', function () { net.inflight--; });
+    return send.apply(this, arguments);
+  };
+}
+return window.__ptNet;
+"""
+
+#: After Confirm: is the form open or busy, what text does it show, did any
+#: other dialog open, and how many requests has the page completed.
+_JS_CONFIRM_STATE = """
+var m = document.querySelector(arguments[0]);
+var shown = function (e) { var r = e.getBoundingClientRect(); var cs = getComputedStyle(e);
+  return r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden'; };
+var dialog = m ? (m.querySelector('[role=dialog]') || m) : null;
+var open = !!dialog && dialog.offsetParent !== null && shown(dialog);
+var confirm = m ? m.querySelector(arguments[1]) : null;
+var button = confirm ? {disabled: !!confirm.disabled || confirm.getAttribute('aria-disabled') === 'true',
+  loading: /loading/i.test(confirm.className || '') || !!confirm.querySelector('[class*=loading i],[class*=spin i]'),
+  text: (confirm.innerText || '').trim().slice(0, 30)} : null;
+var busy = !!button && (button.loading || button.disabled);
+if (m && !busy) {
+  busy = Array.prototype.some.call(m.querySelectorAll('[aria-busy=true],.ant-spin-spinning,[class*=spinner i],[class*=loading i]'), shown);
+}
+var texts = [];
+if (m) {
+  Array.prototype.forEach.call(m.querySelectorAll('*'), function (e) {
+    if (e.children.length === 0 && shown(e)) {
+      var t = (e.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (t && t.length < 200 && texts.indexOf(t) === -1) { texts.push(t); }
+    }
+  });
+}
+var others = [];
+Array.prototype.forEach.call(document.querySelectorAll('[role=dialog],[role=alertdialog],.ant-modal-confirm,.ant-popover,.ant-popconfirm'), function (d) {
+  if ((m && m.contains(d)) || !shown(d)) { return; }
+  var words = (d.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 160);
+  var buttons = Array.prototype.map.call(d.querySelectorAll('button,[role=button]'), function (b) {
+    return (b.innerText || '').trim().slice(0, 30); }).filter(Boolean).slice(0, 6);
+  others.push({text: words, buttons: buttons});
+});
+var net = window.__ptNet || {started: 0, inflight: 0};
+return {open: open, busy: busy || net.inflight > 0, button: button, texts: texts.slice(0, 120), otherDialogs: others,
+  resources: performance.getEntriesByType('resource').length, started: net.started, inflight: net.inflight};
+"""
+
+
 class PortalBookingService(BookingService):
     """Drives the portal's scheduler and reservation form for one court date."""
 
@@ -191,7 +261,8 @@ class PortalBookingService(BookingService):
 
     def __init__(self, driver: Any, waiter: Any, settings: Any) -> None:
         super().__init__(driver, waiter, settings)
-        self._first_confirm_logged = False
+        self._confirms_logged = 0
+        self._why = ""
 
     # -- the toolbar --------------------------------------------------------
     def _nav(self) -> dict[str, Any]:
@@ -341,22 +412,50 @@ class PortalBookingService(BookingService):
         )
 
     def attempt(self, candidate: SlotCandidate) -> SlotOutcome:
+        self._why = ""
+        started = time.monotonic()
         try:
-            return self._attempt(candidate)
+            outcome = self._attempt(candidate)
         except Exception as exc:  # noqa: BLE001 - one bad attempt must not end the sprint
-            logger.warning(f"{candidate}: {type(exc).__name__}: {str(exc).splitlines()[0]}")
+            self._why = f"{type(exc).__name__}: {str(exc).splitlines()[0]}"
+            logger.warning(f"{candidate}: {self._why}")
             self._close_modal()
-            return SlotOutcome.ERROR
+            outcome = SlotOutcome.ERROR
+        # One line per attempt: the runner turns these into the chat's "tried:" list.
+        logger.info(
+            f"ATTEMPT {candidate}: {outcome.value}"
+            + (f" - {self._why}" if self._why else "")
+            + f" ({time.monotonic() - started:.1f}s)"
+        )
+        return outcome
 
     def _attempt(self, candidate: SlotCandidate) -> SlotOutcome:
         found = self._find_slot(candidate)
         if found.get("state") != "found":
-            logger.debug(f"{candidate.label}: {found.get('state')}")
+            self._why = {"not-open": "no open slot at that time", "no-label": "time not on the grid"}.get(
+                str(found.get("state")), str(found.get("state")))
             return SlotOutcome.UNAVAILABLE
 
+        # A longer booking needs a court free for every half hour it covers, so
+        # each later half-hour row must have an open slot too. If one reads
+        # "None Available", this length cannot fit: skip opening the form, which
+        # costs seconds at the release. (Kept as unavailable, not ruled out: a
+        # court can free up before the next pass.)
+        step = max(self.settings.slot_length_minutes, 5)
+        for minutes in range(step, candidate.duration, step):
+            later = SlotCandidate(candidate.start + timedelta(minutes=minutes), step)
+            if self._find_slot(later).get("state") != "found":
+                self._why = f"{later.label} is not open, so {candidate.duration} min cannot fit"
+                return SlotOutcome.UNAVAILABLE
+
+        found = self._find_slot(candidate)  # the check above scrolled the grid
+        if found.get("state") != "found":
+            self._why = "no open slot at that time"
+            return SlotOutcome.UNAVAILABLE
         self.waiter.click(found["el"], f"{candidate.label} slot")
         if not self.waiter.until(self._modal_open, timeout=self.settings.webdriver_timeout):
-            logger.warning(f"{candidate.label}: the reservation form did not open")
+            self._why = "the reservation form did not open"
+            logger.warning(f"{candidate.label}: {self._why}")
             return SlotOutcome.ERROR
         parts = self.waiter.until(lambda: (lambda p: p if p.get("dateTime") else None)(self._parts()), timeout=5) or {}
 
@@ -366,6 +465,7 @@ class PortalBookingService(BookingService):
                 f"{candidate}: the form shows {parts.get('dateTime')!r}, not "
                 f"{candidate.start:%A %b %-d} {candidate.label}; closing it without confirming"
             )
+            self._why = f"the form showed {parts.get('dateTime')!r}; not confirmed"
             self._close_modal()
             return SlotOutcome.ERROR
 
@@ -376,6 +476,7 @@ class PortalBookingService(BookingService):
             return SlotOutcome.ERROR
 
         if self.settings.dry_run:
+            self._why = "dry run: the form was ready; not confirmed"
             logger.info(f"DRY RUN: {candidate} is open and the form is ready; not confirming")
             self._close_modal()
             return SlotOutcome.WOULD_BOOK
@@ -388,7 +489,8 @@ class PortalBookingService(BookingService):
             return None
         combo = parts.get("combo")
         if combo is None:
-            logger.warning(f"{candidate}: the form has no duration control")
+            self._why = "the form has no duration control"
+            logger.warning(f"{candidate}: {self._why}")
             self._close_modal()
             return SlotOutcome.ERROR
         self.waiter.click(combo, "duration list")
@@ -398,12 +500,14 @@ class PortalBookingService(BookingService):
         match = next((o for o in options if norm(o.get("text")) == norm(want)), None)
         if match is None:
             offered = [o.get("text") for o in options]
+            self._why = f"{want} not offered (offered {', '.join(map(str, offered)) or 'nothing'})"
             logger.info(f"{candidate}: {want!r} is not offered here (offered {offered})")
             self._close_modal()
             return SlotOutcome.DURATION_UNAVAILABLE
         self.waiter.click(match["el"], f"duration {want}")
         if not self.waiter.until(lambda: norm(self._parts().get("comboText")) == norm(want), timeout=3):
-            logger.warning(f"{candidate}: chose {want!r} but the form still shows {self._parts().get('comboText')!r}")
+            self._why = f"chose {want} but the form kept {self._parts().get('comboText')!r}"
+            logger.warning(f"{candidate}: {self._why}")
             self._close_modal()
             return SlotOutcome.ERROR
         return None
@@ -418,7 +522,8 @@ class PortalBookingService(BookingService):
         self.waiter.click(parts["checkbox"], "disclosure checkbox")
         if self.waiter.until(lambda: self._parts().get("checked") == "true", timeout=3):
             return True
-        logger.warning(f"{candidate}: the disclosure checkbox would not tick")
+        self._why = "the disclosure checkbox would not tick"
+        logger.warning(f"{candidate}: {self._why}")
         self._close_modal()
         return False
 
@@ -426,73 +531,163 @@ class PortalBookingService(BookingService):
         parts = self._parts()
         button, label = parts.get("confirm"), (parts.get("confirmText") or "").strip()
         if button is None or label.lower() != "confirm" or parts.get("confirmDisabled"):
-            logger.warning(f"{candidate}: no usable Confirm button (found {label!r}, disabled={parts.get('confirmDisabled')})")
+            self._why = f"no usable Confirm button (found {label!r}, disabled={parts.get('confirmDisabled')})"
+            logger.warning(f"{candidate}: {self._why}")
             self._close_modal()
             return SlotOutcome.ERROR
 
         before = self._messages()
         stale = set(before.get("toasts", [])) | set(before.get("formErrors", []))
         page_before = str(before.get("url") or "").split("?", 1)[0]
+        self.waiter.js(_JS_NET_WATCH)
+        state0 = self._confirm_state()
+        texts0 = set(state0.get("texts") or [])
         self.waiter.click(button, "Confirm")
+        clicked_at = self.waiter.now()
         logger.info(f"Confirmed {candidate}; waiting for the site's answer")
 
-        deadline = self.waiter.now() + max(self.settings.webdriver_timeout, 10)
+        base = max(self.settings.webdriver_timeout, 10)
+        deadline = clicked_at + base
+        hard_stop = clicked_at + CONFIRM_BUSY_CAP_SECONDS
         closed_at: float | None = None
+        pressed_again = False
+        saw_busy = False
         last: dict[str, Any] = {}
+        state: dict[str, Any] = state0
         while self.waiter.now() < deadline:
             last = self._messages()
+            state = self._confirm_state()
             fresh_toasts = [t for t in last.get("toasts", []) if t not in stale]
             fresh_errors = [t for t in last.get("formErrors", []) if t not in stale]
-            open_now = self._modal_open()
+            new_texts = [t for t in state.get("texts") or [] if t not in texts0]
+            open_now = bool(state.get("open"))
             text = " | ".join(fresh_errors + fresh_toasts)
-            if fresh_errors or (fresh_toasts and _FAILURE.search(text) and not _SUCCESS.search(text)):
-                self._log_first_confirm(candidate, "refused", open_now, last)
-                logger.info(f"{candidate.label}: refused - {text[:200]}")
+            new_text = " | ".join(new_texts)
+            evidence = self._evidence(state, last, new_texts, saw_busy, pressed_again)
+
+            if fresh_errors or (fresh_toasts and _FAILURE.search(text) and not _SUCCESS.search(text)) or (
+                open_now and new_texts and _FAILURE.search(new_text) and not _SUCCESS.search(new_text)
+            ):
+                self._after_confirm(candidate, "refused", evidence)
+                self._why = f"the site refused: {(text or new_text)[:160]}"
                 self._close_modal()
                 return SlotOutcome.REJECTED
-            if fresh_toasts and _SUCCESS.search(text):
-                self._log_first_confirm(candidate, "confirmed", open_now, last)
-                logger.success(f"BOOKED {candidate} - {text[:200]}")
-                self._remember(candidate, "explicit", text)
+            if (fresh_toasts and _SUCCESS.search(text)) or (new_texts and _SUCCESS.search(new_text)):
+                self._after_confirm(candidate, "confirmed", evidence)
+                logger.success(f"BOOKED {candidate} - {(text or new_text)[:200]}")
+                self._remember(candidate, "explicit", text or new_text)
                 return SlotOutcome.BOOKED
+            if state.get("otherDialogs"):
+                # A second step we have never seen (a charge to accept, say).
+                # Never click it blind: stop and let the owner look.
+                shot = self._screenshot(candidate, "second-dialog")
+                self._after_confirm(candidate, "another dialog opened", {**evidence, "screenshot": shot})
+                return self._unverified(
+                    candidate, f"Confirm opened another dialog the bot does not know: {state['otherDialogs'][:2]}"
+                )
             if not open_now:
-                # Give a toast a moment to appear after the form closes.
                 closed_at = closed_at if closed_at is not None else self.waiter.now()
-                if self.waiter.now() - closed_at >= 3:
+                if self.waiter.now() - closed_at >= 3:  # a toast may follow the close
                     break
+            elif state.get("busy"):
+                # The site is working on it: noon is its busiest second.
+                saw_busy = True
+                deadline = min(max(deadline, self.waiter.now() + 5), hard_stop)
+            elif (
+                not pressed_again
+                and self.waiter.now() - clicked_at >= CONFIRM_RETRY_AFTER_SECONDS
+                and not saw_busy
+                and not new_texts
+                and int(state.get("started") or 0) == int(state0.get("started") or 0)
+                and int(state.get("resources") or 0) == int(state0.get("resources") or 0)
+            ):
+                # Nothing at all happened: no request started, none finished, no
+                # busy state, no new text.
+                # The press never reached the page, so pressing again cannot
+                # double-book. Use a real mouse click this time.
+                logger.warning(f"{candidate}: Confirm caused no activity; pressing it again with a mouse click")
+                pressed_again = True
+                self._mouse_click(parts["confirm"]) if parts.get("confirm") is not None else None
+                deadline = max(deadline, self.waiter.now() + base)
             self.waiter.sleep(self.settings.poll_interval_ms / 1000.0)
 
+        evidence = self._evidence(state, last, [t for t in state.get("texts") or [] if t not in texts0],
+                                  saw_busy, pressed_again)
         if self._modal_open():
-            self._log_first_confirm(candidate, "no verdict, form still open", True, last)
-            logger.warning(f"{candidate.label}: the form is still open {max(self.settings.webdriver_timeout, 10)}s after Confirm")
+            evidence["screenshot"] = self._screenshot(candidate, "form-still-open")
+            self._after_confirm(candidate, "no verdict, form still open", evidence)
+            waited = self.waiter.now() - clicked_at
+            self._why = f"form still open {waited:.0f}s after Confirm, no message (busy seen: {saw_busy})"
+            logger.warning(f"{candidate.label}: {self._why}")
             self._close_modal()
             return SlotOutcome.REJECTED
         page_after = str(last.get("url") or "").split("?", 1)[0]
         if page_after != page_before:
-            self._log_first_confirm(candidate, "form closed and the page changed", False, last)
+            self._after_confirm(candidate, "form closed and the page changed", evidence)
             return self._unverified(candidate, f"the form closed after Confirm and the page moved to {page_after}")
         # Observed live (Nov 2026): a successful booking closes the form with no
         # toast. Cancel is never pressed here, a refusal keeps the form open or
         # shows an error (both handled above), so a quiet close on the same
         # page is the portal's success.
-        self._log_first_confirm(candidate, "form closed without an error (counted as booked)", False, last)
+        self._after_confirm(candidate, "form closed without an error (counted as booked)", evidence)
         logger.success(f"BOOKED {candidate} - the form closed after Confirm without an error")
         self._remember(candidate, "inferred", "the form closed after Confirm without an error")
         return SlotOutcome.BOOKED
 
-    def _log_first_confirm(self, candidate: SlotCandidate, verdict: str, still_open: bool, messages: dict[str, Any]) -> None:
-        """What the site showed after Confirm, recorded once per run.
+    # -- evidence after Confirm ----------------------------------------------
+    def _confirm_state(self) -> dict[str, Any]:
+        raw = self.waiter.js(_JS_CONFIRM_STATE, locators.PORTAL_MODAL, locators.PORTAL_CONFIRM)
+        return raw if isinstance(raw, dict) else {}
 
-        Until a live booking has been observed this is the only way to learn
-        the portal's confirmation, so it goes to the log in full.
-        """
-        if self._first_confirm_logged:
+    def _evidence(self, state: dict[str, Any], messages: dict[str, Any], new_texts: list[str],
+                  saw_busy: bool, pressed_again: bool) -> dict[str, Any]:
+        from ..capture import scrub_text  # noqa: PLC0415
+
+        return {
+            "form_open": bool(state.get("open")),
+            "busy_seen": saw_busy,
+            "confirm_button": state.get("button"),
+            "pressed_again": pressed_again,
+            "new_text_in_form": [scrub_text(t) for t in new_texts[:10]],
+            "other_dialogs": state.get("otherDialogs") or [],
+            "toasts": messages.get("toasts") or [],
+            "form_errors": messages.get("formErrors") or [],
+            "url": messages.get("url"),
+            "requests_started": int(state.get("started") or 0),
+            "requests_in_flight": int(state.get("inflight") or 0),
+        }
+
+    def _after_confirm(self, candidate: SlotCandidate, verdict: str, evidence: dict[str, Any]) -> None:
+        """What the site showed after each Confirm (up to five per run), in full."""
+        self._confirms_logged += 1
+        if self._confirms_logged > 5:
             return
-        self._first_confirm_logged = True
-        logger.warning(
-            f"AFTER CONFIRM ({verdict}) for {candidate}: form still open={still_open}; "
-            f"page said {json.dumps({k: messages.get(k) for k in ('toasts', 'formErrors', 'url')})[:800]}"
-        )
+        logger.warning(f"AFTER CONFIRM ({verdict}) for {candidate}: {json.dumps(evidence, default=str)[:1500]}")
+
+    def _mouse_click(self, element: Any) -> None:
+        from selenium.webdriver.common.action_chains import ActionChains  # noqa: PLC0415
+
+        try:
+            self.waiter.js("arguments[0].scrollIntoView({block: 'center'});", element)
+            ActionChains(self.driver).move_to_element(element).pause(0.05).click().perform()
+        except Exception as exc:  # noqa: BLE001 - fall back to a native click
+            logger.debug(f"mouse click failed ({type(exc).__name__}); trying a native click")
+            try:
+                element.click()
+            except Exception as inner:  # noqa: BLE001
+                logger.warning(f"second Confirm press failed: {type(inner).__name__}: {inner}")
+
+    def _screenshot(self, candidate: SlotCandidate, what: str) -> str | None:
+        folder = Path(os.environ.get("PT_LOGS") or self.settings.screenshot_dir or tempfile.gettempdir())
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%dT%H%M%S")
+            path = folder / f"{stamp}-after-confirm-{candidate.label.replace(':', '').replace(' ', '')}-{what}.png"
+            self.driver.save_screenshot(str(path))
+            return str(path)
+        except Exception as exc:  # noqa: BLE001 - evidence must not break the run
+            logger.debug(f"screenshot failed: {exc}")
+            return None
 
     def _page_evidence(self) -> str:
         messages = self._messages()

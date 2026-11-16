@@ -9,7 +9,7 @@ phrase the owner says. Steps marked **You** are the owner's alone.
 
 | Path | What it is |
 | --- | --- |
-| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.3.0`; never edited |
+| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.3.1`; never edited |
 | `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/` (Chrome, Python, the installed engine) |
 | `/workspace/.pickletime-secrets/courtreserve.env` | only if the owner chooses a file instead of the secret card (mode 0600) |
 
@@ -24,7 +24,7 @@ unless it says otherwise; it is written `run.sh` for short.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.3.0 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch v0.3.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
 If the tag does not exist, stop and tell the owner. An existing checkout stays
@@ -292,6 +292,8 @@ it.
 | `[FAIL] credentials` | a secret is missing or misnamed; the names are exactly `USERID` and `PASSWORD` |
 | `FAILED for <date>: LoginError` | wrong password or a locked account; check it in CourtReserve, then update the card |
 | `NavigationError: The bookings page loaded but has no Kendo scheduler grid` | CourtReserve moved the facility to a new page layout; the engine needs updating. Pause the `book` routine and follow 11.1 |
+| `Site's answer ... (no verdict, form still open)` | the form neither closed nor showed an error after Confirm, even after the bot waited while it looked busy and pressed again when nothing happened. The owner checks My Bookings; share the line and its screenshot |
+| `Confirm opened another dialog the bot does not know` | a second step after Confirm (for example a charge to accept). The bot never clicks unknown dialogs; share the line and screenshot |
 | `NOT BOOKED: ... not offered` | the club's duration wording changed; set `duration_labels` (7.1); `config/config.sample.yaml` explains it |
 
 The engine's full log for every run is in `/workspace/pickletime-desk/logs/`,

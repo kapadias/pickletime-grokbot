@@ -3,7 +3,7 @@ name: pickletime-bot-bootstrap
 description: First run of PickleTime Bot on Grok Bot - clone the pinned release, install the booking engine, Chrome and Python under /workspace, prove Chrome works on a local fake CourtReserve, take the CourtReserve login through the secure secret card (never chat), interview the owner for their club, days and times and set up their schedule after their tap, and return the setup receipt. Booking stays in rehearsal (dry runs) until the owner says "go live". Use for a first setup, a repair or a readiness check.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.3.1"
   category: booking
 ---
 
@@ -32,7 +32,7 @@ two secrets through the secure secret card. Everything else is the Bot's work.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.3.0 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch v0.3.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
 If the tag does not exist, stop and tell the owner. An existing checkout is
@@ -92,7 +92,7 @@ wrong evening. Fix and propose again until they are happy; after their tap,
 
 ## 6. The receipt
 
-One message. Three plain lines first: the bot is installed (release v0.3.0
+One message. Three plain lines first: the bot is installed (release v0.3.1
 and its commit), Chrome works on this computer, and it is in rehearsal mode
 so nothing will be booked yet. Then the evidence: install lines, the doctor
 verdict, `run.sh schedule show`, the credential readback (masked). Name the

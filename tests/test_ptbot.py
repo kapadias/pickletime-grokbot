@@ -108,6 +108,25 @@ class UnverifiedVerdictTests(unittest.TestCase):
         self.assertNotIn("NOT BOOKED", line)
 
 
+class LogSummaryTests(unittest.TestCase):
+    def test_attempts_and_confirm_answers_are_read_from_the_engine_log(self):
+        import tempfile
+
+        log = (
+            "2026-11-15 12:00:01 | INFO | ATTEMPT 6:30 PM / 60min: unavailable - 7:00 PM is not open, so 60 min cannot fit (0.2s)\n"
+            "2026-11-15 12:00:04 | INFO | ATTEMPT 7:30 PM / 30min: rejected - form still open 45s after Confirm (busy seen: True) (49.1s)\n"
+            "2026-11-15 12:00:49 | WARNING | AFTER CONFIRM (no verdict, form still open) for 7:30 PM / 30min: {\"form_open\": true}\n"
+        )
+        with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as fh:
+            fh.write(log)
+        tried = ptbot._attempt_lines(fh.name)
+        self.assertEqual(tried[0], "6:30 PM / 60min unavailable - 7:00 PM is not open, so 60 min cannot fit (0.2s)")
+        self.assertEqual(len(tried), 2)
+        answers = ptbot._after_confirm_lines(fh.name)
+        self.assertEqual(answers, ['(no verdict, form still open) for 7:30 PM / 30min: {"form_open": true}'])
+        self.assertEqual(ptbot._attempt_lines(None), [])
+
+
 class TimingSummaryTests(unittest.TestCase):
     def test_recommends_at_least_45_minutes(self):
         records = [{"late_minutes": m, "started_at": "x", "finished_at": "y"} for m in (2, 5, 9)]

@@ -3,7 +3,7 @@ name: pickletime-bot-operations
 description: Standing instructions for PickleTime Bot after setup - what each owner phrase runs (turn on the routine, show routine timing, go live, status, show or change my schedule, book now, retire Cloud Run), how routine output is posted, which commands need the owner's tap, and what to do when a run fails or a routine is late. Use for every request after the first run.
 license: MIT
 metadata:
-  version: "0.3.0"
+  version: "0.3.1"
   category: booking
 ---
 
@@ -52,6 +52,9 @@ sentence of your own, and never a number the tool did not print.
 | `FAILED for <date>: LoginError ...` | the site rejected the login: the owner checks the password on the card, or whether CourtReserve locked the account |
 | `FAILED for <date>: NavigationError: The bookings page loaded but has no Kendo scheduler grid ...` | CourtReserve changed the page layout. Nothing was booked. Offer to pause the `book` routine, then SETUP.md 11.1 (capture) so the engine can be updated |
 | `UNVERIFIED <date> at <time> ...` | Not a failure and not a booking. Tell the owner to check CourtReserve now; never run `book` again for that date until they have. If the court is there, ask them to share the `Site's answer after Confirm` line |
+| `Tried: ...` under a verdict | one entry per time and length the bot tried, with why it did not book; quote it when the owner asks what happened |
+| `Site's answer after Confirm ... (no verdict, form still open)` | the site neither booked nor refused within 45s. Ask the owner to check My Bookings in CourtReserve, and share the line and the screenshot path it names |
+| `UNVERIFIED ...: Confirm opened another dialog the bot does not know` | the bot stopped without clicking it. Ask the owner to check CourtReserve and share the line and screenshot; the engine needs to learn that step |
 | `NOT BOOKED <date>: ...` | a business outcome (courts were gone). Post it; suggest widening the window only if the owner asks |
 | `UNAVAILABLE - today's run ... was cut off` | Grok stopped the long-running command; follow SETUP.md 8 (detached mode) |
 | `NOT RUN - started ... min before` | the routine is scheduled too early for the 120-minute cap; move it later |

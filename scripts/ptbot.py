@@ -455,8 +455,10 @@ def cmd_book(args: argparse.Namespace) -> int:
 
     print(verdict_line(record))
     print(timing_line(record))
-    answer = _after_confirm_line(record.get("log"))
-    if answer:
+    tried = _attempt_lines(record.get("log"))
+    if tried and record["outcome"] not in {"skipped", "already-booked"}:
+        print("Tried: " + "; ".join(tried[:12]) + (f"; ... {len(tried) - 12} more" if len(tried) > 12 else ""))
+    for answer in _after_confirm_lines(record.get("log"))[:5]:
         print(f"Site's answer after Confirm (share this line when asked): {answer}")
     if plan.late_for_release:
         print(
@@ -469,17 +471,28 @@ def cmd_book(args: argparse.Namespace) -> int:
     return EXIT_OK if record["outcome"] in {"booked", "skipped", "already-booked"} or effective.dry_run else EXIT_NOT_BOOKED
 
 
-def _after_confirm_line(log: str | None) -> str | None:
-    """The engine's record of what the site showed after Confirm, if it pressed it."""
+def _log_lines(log: str | None, marker: str) -> list[str]:
     if not log:
-        return None
+        return []
     try:
-        for line in Path(log).read_text(encoding="utf-8", errors="replace").splitlines():
-            if "AFTER CONFIRM" in line:
-                return line.split("AFTER CONFIRM", 1)[1].strip()[:900]
+        lines = Path(log).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return None
-    return None
+        return []
+    return [line.split(marker, 1)[1].strip() for line in lines if marker in line]
+
+
+def _after_confirm_lines(log: str | None) -> list[str]:
+    """What the site showed after each Confirm the engine pressed."""
+    return [line[:1500] for line in _log_lines(log, "AFTER CONFIRM")]
+
+
+def _attempt_lines(log: str | None) -> list[str]:
+    """One short entry per attempt: '6:30 PM / 60min unavailable - no open slot at that time'."""
+    out = []
+    for line in _log_lines(log, "ATTEMPT "):
+        head, _, rest = line.partition(": ")
+        out.append(f"{head} {rest}".strip()[:140])
+    return out
 
 
 def _detach(args: argparse.Namespace) -> int:
@@ -770,7 +783,7 @@ def _fake_portal_rehearsal() -> tuple[bool, str]:
         "chrome_binary": os.environ.get("CHROME_BIN"), "chrome_driver_path": os.environ.get("CHROME_DRIVER_PATH"),
     }
     target = BookingSettings(**base).target_date()
-    state = PortalState(today=target - timedelta(days=8), open_slots={target: {"6:30 PM": 1}})
+    state = PortalState(today=target - timedelta(days=8), open_slots={target: {"6:30 PM": 1, "7:00 PM": 1}})
     runtime = RuntimeSettings(log_level="WARNING", log_json=False, ledger_path=str(STATE / "fake-portal-ledger.json"))
     started = _time.monotonic()
     with FakePortal(state) as site:

@@ -2,17 +2,17 @@
   "status": "unpublished",
   "name": "PickleTime Bot",
   "title": "Books my pickleball courts the moment they open",
-  "description": "PickleTime Bot (release 0.3.0): books CourtReserve courts the moment they open, from a pinned release of this repository. Starts in rehearsal; real bookings only after the owner says 'go live' and taps approve.",
+  "description": "PickleTime Bot (release 0.3.1): books CourtReserve courts the moment they open, from a pinned release of this repository. Starts in rehearsal; real bookings only after the owner says 'go live' and taps approve.",
   "source": {
     "repository": "https://github.com/kapadias/pickletime-grokbot",
-    "release": "0.3.0"
+    "release": "0.3.1"
   },
   "templateSkillNames": [
     "pickletime-bot-bootstrap"
   ],
   "skills": {
-    "pickletime-bot-bootstrap": "6c2ef40f71d786cc4b741c35c09b15bf28e578272e63e77798554b29fb0ae98c",
-    "pickletime-bot-operations": "8bfa8c6d73b24374a88f7ae7ba46a30123298f643307a5cdd60c394e172d9d8a"
+    "pickletime-bot-bootstrap": "878fb4471b59967458e70c0d4470f2d08df5e774d46f9252e4fb6b598acbcfcd",
+    "pickletime-bot-operations": "026352126131c469f90324fad08ae77a04865e800c9cbf5a1825d35742b04f54"
   },
   "agent": {
     "path": "agents/pickletime-bot.md",
