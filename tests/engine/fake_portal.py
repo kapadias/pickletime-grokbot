@@ -80,6 +80,12 @@ class PortalState:
     book_requests: int = 0
     #: Slot labels whose reservation form was opened, in order.
     forms_opened: list[str] = field(default_factory=list)
+    #: The form loads its details for this long after opening (and after a
+    #: duration change); Confirm pressed meanwhile is silently ignored, as a
+    #: real form busy recalculating its cost can be.
+    form_load_ms: int = 0
+    #: Confirm presses the form ignored because it was still loading.
+    ignored_presses: int = 0
     bookings: list[dict[str, str]] = field(default_factory=list)
     reads: list[str] = field(default_factory=list)
 
@@ -163,7 +169,14 @@ const SILENT = __SILENT__;
 const NAVIGATE = __NAVIGATE__;
 const CONFIRM_MODE = __CONFIRM_MODE__;
 const BUSY_MS = __BUSY_MS__;
+const FORM_LOAD_MS = __FORM_LOAD_MS__;
 let confirmPresses = 0;
+let formLoading = false;
+function loadFormDetails() {
+  if (!FORM_LOAD_MS) return;
+  formLoading = true;
+  fetch('/api/portal/formload').then(() => { formLoading = false; });
+}
 
 function fmtLabel(d) {
   return d.toLocaleDateString('en-US', {weekday: 'long', month: 'long', day: 'numeric'});
@@ -211,6 +224,7 @@ async function load() {
 function openModal(ms) {
   selected = ms;
   fetch('/api/portal/opened?slot=' + encodeURIComponent(clock(ms)));
+  loadFormDetails();
   document.getElementById('dt-day').textContent = new Date(ms).toLocaleDateString('en-US', {weekday: 'long'});
   const shown = ms + MODAL_OFFSET * 60000;
   document.getElementById('dt-tile').textContent = new Date(shown).toLocaleDateString('en-US', {month: 'short'}).toUpperCase() + ' ' + new Date(shown).getDate();
@@ -234,6 +248,7 @@ document.getElementById('combo').addEventListener('click', () => {
       document.getElementById('combo').textContent = text;
       document.getElementById('durationinput').value = String(value);
       closeList();
+      loadFormDetails();
     });
     lb.appendChild(o);
   }
@@ -246,6 +261,7 @@ document.getElementById('xclose').addEventListener('click', closeModal);
 document.getElementById('backclose').addEventListener('click', closeModal);
 document.getElementById('confirm').addEventListener('click', async () => {
   confirmPresses++;
+  if (formLoading) { fetch('/api/portal/ignored'); return; }
   if (CONFIRM_MODE === 'noop') return;
   if (CONFIRM_MODE === 'needs_second_click' && confirmPresses === 1) return;
   if (CONFIRM_MODE === 'extra_dialog') {
@@ -340,8 +356,19 @@ class _Handler(BaseHTTPRequestHandler):
                 .replace("__NAVIGATE__", json.dumps(self.state.navigate_after_confirm))
                 .replace("__CONFIRM_MODE__", json.dumps(self.state.confirm_mode))
                 .replace("__BUSY_MS__", str(self.state.busy_ms))
+                .replace("__FORM_LOAD_MS__", str(self.state.form_load_ms))
             )
             self._send(page)
+            return
+        if url.path == "/api/portal/formload":
+            import time  # noqa: PLC0415
+
+            time.sleep(self.state.form_load_ms / 1000)
+            self._send("{}", content_type="application/json")
+            return
+        if url.path == "/api/portal/ignored":
+            self.state.ignored_presses += 1
+            self._send("{}", content_type="application/json")
             return
         if url.path == "/api/portal/opened":
             self.state.forms_opened.append(parse_qs(url.query).get("slot", [""])[0])

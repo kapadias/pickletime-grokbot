@@ -4,8 +4,9 @@
 
 The first live run on the member portal reached Confirm once (7:30 PM, 30 min) and the form stayed open with no message; the other nine attempts never reached Confirm, and the single pass took 59.5 s. This release makes the next run both more likely to win and decisive about what happened.
 
+- Before pressing Confirm, the bot waits (up to 5 s) for the form's own background loading to finish: opening the form and changing the duration each make it recalculate cost and courts, and a press during that can be silently ignored, one likely cause of the live run's form staying open.
 - After Confirm, the bot keeps waiting while the form is busy (loading button, spinner, or a request still on its way), up to 45 s, instead of closing it after 15 s. The page's own requests are watched as they start, not only when they finish.
-- If Confirm caused nothing at all (no request started or finished, no busy state, no new text) for 5 s, it is pressed once more with a real mouse click. Since nothing reached the site, this cannot double-book; a slow request with no spinner is never pressed twice.
+- If Confirm caused nothing at all (no request started since the press, no busy state, no new text) for 5 s, it is pressed once more with a real mouse click. Since nothing reached the site, this cannot double-book; a slow request with no spinner is never pressed twice.
 - An unknown second dialog after Confirm (a charge to accept, say) is never clicked: the run stops as `UNVERIFIED`, recording the dialog's text and buttons.
 - A longer booking is skipped without opening the form when a later half hour it needs reads "None Available" (60 min at 6:30 needs 7:00 open). It stays in the plan, so a court that frees up is still tried on the next pass.
 - Every attempt logs one line with its outcome and reason, and the chat shows them under the verdict as `Tried: ...`. Every Confirm (up to five) logs what the page showed, including new text in the form, the Confirm button's state and request counts, and saves a screenshot when the form stays open or a second dialog appears.

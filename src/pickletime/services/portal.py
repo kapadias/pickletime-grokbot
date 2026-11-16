@@ -192,6 +192,8 @@ return out;
 CONFIRM_BUSY_CAP_SECONDS = 45
 #: With no activity at all this long after Confirm, press it once more.
 CONFIRM_RETRY_AFTER_SECONDS = 5
+#: Longest wait for the form's own background loading before pressing Confirm.
+FORM_SETTLE_SECONDS = 5
 
 #: Counts the page's own requests as they start and finish, so "Confirm did
 #: nothing" can be told apart from "Confirm's request is still on its way".
@@ -453,6 +455,10 @@ class PortalBookingService(BookingService):
             self._why = "no open slot at that time"
             return SlotOutcome.UNAVAILABLE
         self.waiter.click(found["el"], f"{candidate.label} slot")
+        # Watch the page's requests from the moment the form opens: the form
+        # loads its details (cost, courts, durations) in the background, and
+        # Confirm must not be pressed until that has finished.
+        self.waiter.js(_JS_NET_WATCH)
         if not self.waiter.until(self._modal_open, timeout=self.settings.webdriver_timeout):
             self._why = "the reservation form did not open"
             logger.warning(f"{candidate.label}: {self._why}")
@@ -540,6 +546,9 @@ class PortalBookingService(BookingService):
         stale = set(before.get("toasts", [])) | set(before.get("formErrors", []))
         page_before = str(before.get("url") or "").split("?", 1)[0]
         self.waiter.js(_JS_NET_WATCH)
+        settled = self._await_form_settled()
+        if not settled:
+            logger.warning(f"{candidate}: the form was still loading after {FORM_SETTLE_SECONDS}s; confirming anyway")
         state0 = self._confirm_state()
         texts0 = set(state0.get("texts") or [])
         self.waiter.click(button, "Confirm")
@@ -599,10 +608,10 @@ class PortalBookingService(BookingService):
                 and not saw_busy
                 and not new_texts
                 and int(state.get("started") or 0) == int(state0.get("started") or 0)
-                and int(state.get("resources") or 0) == int(state0.get("resources") or 0)
             ):
-                # Nothing at all happened: no request started, none finished, no
-                # busy state, no new text.
+                # Nothing happened: no request started since the press, no busy
+                # state, no new text. (Requests that finish later belong to the
+                # form's own loading, so they do not count as Confirm's.)
                 # The press never reached the page, so pressing again cannot
                 # double-book. Use a real mouse click this time.
                 logger.warning(f"{candidate}: Confirm caused no activity; pressing it again with a mouse click")
@@ -633,6 +642,21 @@ class PortalBookingService(BookingService):
         logger.success(f"BOOKED {candidate} - the form closed after Confirm without an error")
         self._remember(candidate, "inferred", "the form closed after Confirm without an error")
         return SlotOutcome.BOOKED
+
+    def _await_form_settled(self) -> bool:
+        """No request in flight for a quarter second, within FORM_SETTLE_SECONDS."""
+        quiet_since: float | None = None
+        deadline = self.waiter.now() + FORM_SETTLE_SECONDS
+        while self.waiter.now() < deadline:
+            net = self.waiter.js(_JS_NET_WATCH) or {}
+            if int(net.get("inflight") or 0) == 0:
+                quiet_since = quiet_since if quiet_since is not None else self.waiter.now()
+                if self.waiter.now() - quiet_since >= 0.25:
+                    return True
+            else:
+                quiet_since = None
+            self.waiter.sleep(0.05)
+        return False
 
     # -- evidence after Confirm ----------------------------------------------
     def _confirm_state(self) -> dict[str, Any]:

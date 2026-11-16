@@ -257,3 +257,17 @@ def test_a_length_that_cannot_fit_is_skipped_without_opening_the_form(make_setti
     assert report.booked is True, report.detail
     assert state.bookings == [{"date": target.isoformat(), "slot": "6:30 PM", "duration": "30"}]
     assert state.forms_opened == ["6:30 PM"]  # opened once, to book; never for a 60 that could not fit
+
+
+@pytest.mark.e2e
+def test_confirm_waits_for_the_form_to_finish_loading(make_settings, chrome_paths, tmp_path, monkeypatch):
+    """The live form recalculates cost and courts after opening and after a duration change.
+
+    Pressing Confirm meanwhile can be silently ignored, which is one way the
+    first live run's form "stayed open". The bot must wait the loading out.
+    """
+    report, state, target = _one_slot(make_settings, chrome_paths, tmp_path, monkeypatch, form_load_ms=1500)
+    assert report.booked is True, report.detail
+    assert state.ignored_presses == 0, "Confirm was pressed while the form was still loading"
+    assert state.book_requests == 1
+    assert state.bookings == [{"date": target.isoformat(), "slot": "6:30 PM", "duration": "60"}]
