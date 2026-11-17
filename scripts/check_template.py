@@ -60,7 +60,7 @@ def main() -> int:
         errors.append(f"source.release {data.get('source', {}).get('release')} != pins.env {release}")
     for doc in ("README.md", "SETUP.md", "skills/pickletime-bot-bootstrap/SKILL.md"):
         text = (ROOT / doc).read_text(encoding="utf-8")
-        for found in set(re.findall(r"(?:blob/|--branch )(v\d+\.\d+\.\d+)", text)):
+        for found in set(re.findall(r"(?:blob/|--branch )(?:release/)?(v\d+\.\d+\.\d+)", text)):
             if found != release:
                 errors.append(f"{doc} pins {found}, pins.env says {release}")
     for template_skill in data.get("templateSkillNames", []):

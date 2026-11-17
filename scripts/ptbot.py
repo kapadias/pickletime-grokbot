@@ -619,6 +619,23 @@ def cmd_timing(_args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # doctor
 # ---------------------------------------------------------------------------
+def release_ref(checkout: Path, release: str, head: str) -> str | None:
+    """Which published ref of ``release`` the checkout is at: its tag or its release branch.
+
+    Releases are published as a tag ``vX.Y.Z`` or a branch ``release/vX.Y.Z``
+    that never moves once published; either pins the code that books.
+    """
+    if not release:
+        return None
+    for ref in (release, f"release/{release}", f"origin/release/{release}"):
+        found = subprocess.run(
+            ["git", "-C", str(checkout), "rev-list", "-n1", ref, "--"], capture_output=True, text=True, check=False
+        ).stdout.strip()
+        if found and found == head:
+            return "tag" if ref == release else "release branch"
+    return None
+
+
 def _check(results: list[tuple[str, str, str]], name: str, ok: bool | None, detail: str) -> None:
     status = "PASS" if ok else ("WARN" if ok is None else "FAIL")
     results.append((status, name, detail))
@@ -632,14 +649,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     # 1. Release pin of this checkout.
     try:
         head = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        tag = subprocess.run(["git", "-C", str(checkout), "rev-list", "-n1", release], capture_output=True, text=True, check=False).stdout.strip()
         dirty = subprocess.run(["git", "-C", str(checkout), "status", "--porcelain"], capture_output=True, text=True, check=False).stdout.strip()
+        via = release_ref(checkout, release, head)
         if dirty:
             _check(results, "release_pin", False, f"checkout has uncommitted changes: {len(dirty.splitlines())} path(s)")
-        elif tag and tag == head:
-            _check(results, "release_pin", True, f"release {release} at {head[:12]}, clean")
+        elif via:
+            _check(results, "release_pin", True, f"release {release} ({via}) at {head[:12]}, clean")
         else:
-            _check(results, "release_pin", None, f"HEAD {head[:12]} is not tag {release} (development checkout)")
+            _check(results, "release_pin", None, f"HEAD {head[:12]} is not release {release} (development checkout)")
     except (OSError, subprocess.CalledProcessError) as exc:
         _check(results, "release_pin", False, f"not a git checkout: {exc}")
 

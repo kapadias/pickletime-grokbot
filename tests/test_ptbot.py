@@ -127,6 +127,26 @@ class LogSummaryTests(unittest.TestCase):
         self.assertEqual(ptbot._attempt_lines(None), [])
 
 
+class ReleaseRefTests(unittest.TestCase):
+    def test_a_release_branch_or_tag_pins_the_checkout(self):
+        import subprocess
+        import tempfile
+
+        repo = Path(tempfile.mkdtemp())
+        git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], check=True, capture_output=True, text=True).stdout.strip()  # noqa: E731, S603, S607
+        git("init", "-q", "-b", "main")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one")
+        head = git("rev-parse", "HEAD")
+        self.assertIsNone(ptbot.release_ref(repo, "v9.9.9", head))
+        git("branch", "release/v9.9.9")
+        self.assertEqual(ptbot.release_ref(repo, "v9.9.9", head), "release branch")
+        git("tag", "v9.9.9")
+        self.assertEqual(ptbot.release_ref(repo, "v9.9.9", head), "tag")
+        git("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two")
+        self.assertIsNone(ptbot.release_ref(repo, "v9.9.9", git("rev-parse", "HEAD")))  # a later dev commit
+        self.assertIsNone(ptbot.release_ref(repo, "", head))
+
+
 class TimingSummaryTests(unittest.TestCase):
     def test_recommends_at_least_45_minutes(self):
         records = [{"late_minutes": m, "started_at": "x", "finished_at": "y"} for m in (2, 5, 9)]

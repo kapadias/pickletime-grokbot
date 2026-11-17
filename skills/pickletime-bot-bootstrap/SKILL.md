@@ -32,10 +32,10 @@ two secrets through the secure secret card. Everything else is the Bot's work.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.3.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch release/v0.3.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
-If the tag does not exist, stop and tell the owner. An existing checkout is
+If the release does not exist, stop and tell the owner. An existing checkout is
 kept as it is (no reset, no overwrite); report what the doctor says about it.
 
 ## 2. Install

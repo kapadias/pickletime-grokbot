@@ -49,7 +49,7 @@ arrives as a chat message on your phone. Everything it needs is in this reposito
 
 Open Grok Bot, create a new Bot, and paste:
 
-> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/v0.3.1/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/v0.3.1/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
+> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.1/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.1/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
 
 The Bot installs Python, the booking engine and Chrome under `/workspace`, then
 books a court on a local fake CourtReserve to prove Chrome works on its
@@ -79,7 +79,7 @@ setup? Say **"retire Cloud Run"** for the command that pauses it.
 Paste this in your Bot's chat. Your schedule, login and booking history are
 kept; it shows your current schedule and asks whether to keep it or change it:
 
-> Update PickleTime Bot to v0.3.1 following section 10 of https://github.com/kapadias/pickletime-grokbot/blob/v0.3.1/SETUP.md, keeping my config and state. Then show my schedule and ask me whether to keep it or change it.
+> Update PickleTime Bot to v0.3.1 following section 10 of https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.1/SETUP.md, keeping my config and state. Then show my schedule and ask me whether to keep it or change it.
 
 ## How it works
 

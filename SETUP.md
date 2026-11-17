@@ -9,7 +9,7 @@ phrase the owner says. Steps marked **You** are the owner's alone.
 
 | Path | What it is |
 | --- | --- |
-| `/workspace/pickletime-grokbot` | this repository, cloned at the tag `v0.3.1`; never edited |
+| `/workspace/pickletime-grokbot` | this repository, cloned at the release `release/v0.3.1` (a branch that never moves once published); never edited |
 | `/workspace/pickletime-desk` | everything the bot writes: `config.yaml`, `state/` (mode, ledger, run records), `logs/`, and `opt/`, `venv/` (Chrome, Python, the installed engine) |
 | `/workspace/.pickletime-secrets/courtreserve.env` | only if the owner chooses a file instead of the secret card (mode 0600) |
 
@@ -24,11 +24,11 @@ unless it says otherwise; it is written `run.sh` for short.
 ## 1. Get the pinned release
 
 ```text
-git clone --depth 1 --branch v0.3.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
+git clone --depth 1 --branch release/v0.3.1 https://github.com/kapadias/pickletime-grokbot.git /workspace/pickletime-grokbot
 ```
 
-If the tag does not exist, stop and tell the owner. An existing checkout stays
-as it is.
+If the release does not exist, stop and tell the owner. An existing checkout
+stays as it is.
 
 ## 2. Install
 
@@ -268,7 +268,8 @@ Google Cloud access, and should not.
 ## 10. Updating
 
 A new release changes the engine, `pins.env` (Chrome) and the skills. Ask the
-Bot: "update PickleTime Bot to vX.Y.Z". It clones the new tag next to the old
+Bot: "update PickleTime Bot to vX.Y.Z". It clones the new release
+(`git clone --depth 1 --branch release/vX.Y.Z ...`) next to the old
 one, runs `install.sh` and `doctor --full` from the new checkout, and after the
 owner's tap swaps the directories. `config.yaml`, `state/` and the secrets are
 never touched.

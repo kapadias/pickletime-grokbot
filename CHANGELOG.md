@@ -2,6 +2,8 @@
 
 ## 0.3.1
 
+Releases are now published as branches named `release/vX.Y.Z`, which never move once published (a tag `vX.Y.Z` still works if one exists). The Start and update prompts, the clone commands and the doctor's release check use them, so a release no longer needs a tag pushed by hand.
+
 The first live run on the member portal reached Confirm once (7:30 PM, 30 min) and the form stayed open with no message; the other nine attempts never reached Confirm, and the single pass took 59.5 s. This release makes the next run both more likely to win and decisive about what happened.
 
 - Before pressing Confirm, the bot waits (up to 5 s) for the form's own background loading to finish: opening the form and changing the duration each make it recalculate cost and courts, and a press during that can be silently ignored, one likely cause of the live run's form staying open.
