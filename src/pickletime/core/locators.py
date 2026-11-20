@@ -109,16 +109,33 @@ SUCCESS_POPUP: str = ".swal2-popup, .toast-success, .alert-success, [role='alert
 # where noted. These are far steadier than its generated `acss-*` class names.
 # ---------------------------------------------------------------------------
 
-#: Present once the portal's scheduler has rendered.
+#: The 2026-11-14 portal wraps the grid in this. The 2026-11-19 page dropped it;
+#: slot search falls back to the whole page when it is absent. Detection uses
+#: :data:`PORTAL_PRESENT` so either generation counts as the portal.
 PORTAL_SCHEDULER: str = "[data-testid='scheduler-page']"
+#: Either generation of the portal scheduler. The next-day button survived the
+#: 2026-11-19 reskin; the page wrapper did not.
+PORTAL_PRESENT: list[Locator] = [
+    (By.CSS_SELECTOR, "[data-testid='scheduler-page']"),
+    (By.CSS_SELECTOR, "[data-testid='scheduler-next-btn']"),
+]
 PORTAL_NEXT_DAY: str = "[data-testid='scheduler-next-btn']"
 PORTAL_PREV_DAY: str = "[data-testid='scheduler-prev-btn']"
 PORTAL_TODAY: str = "[data-testid='scheduler-today-btn']"
-#: Reads like "Saturday, November 14" (no year).
+#: Reads like "Saturday, November 14" (no year). The 2026-11-19 page dropped
+#: this testid; the visible text next to the date picker is the fallback.
 PORTAL_DATE_LABEL: str = "[data-testid='scheduler-date-label']"
-PORTAL_REFRESH: str = "[data-testid='scheduler-refresh-btn']"
-#: An open half-hour slot, reading "Reserve". Full ones read "None Available"
-#: and carry no testid; past ones are empty.
+#: The 2026-11-19 refresh control is a role=button with a rotate icon and an
+#: accessible name, not a testid.
+PORTAL_REFRESH: str = (
+    "[data-testid='scheduler-refresh-btn'], "
+    "[aria-label*='refresh' i], "
+    "[role='button']:has(.fa-arrows-rotate)"
+)
+#: An open half-hour slot on the 2026-11-14 portal, reading "Reserve".
+#: The 2026-11-19 grid has no testid: those slots are ``[role=button]`` whose
+#: text is "Reserve", paired with the time column. Full rows read
+#: "None Available" and are not buttons; past ones are empty.
 PORTAL_SLOT: str = "[data-testid='consolidated-reserve-slot']"
 
 PORTAL_MODAL: str = "[data-testid='reservation-create-modal']"

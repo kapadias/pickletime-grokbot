@@ -78,12 +78,12 @@ class NavigationService:
     def _grid_ready(self, timeout: float | None = None) -> bool:
         """Either layout's scheduler is on screen; records which in ``layout``."""
         limit = self.settings.webdriver_timeout if timeout is None else timeout
-        portal = [("css selector", locators.PORTAL_SCHEDULER)]
-
         def detect() -> str | None:
             if self.waiter.match_now(locators.SCHEDULER_GRID) is not None:
                 return "legacy"
-            if self.waiter.match_now(portal) is not None:
+            # scheduler-page (Nov 14) or scheduler-next-btn (still there on
+            # Nov 19, after the page wrapper and slot testids were removed).
+            if self.waiter.match_now(locators.PORTAL_PRESENT) is not None:
                 return "portal"
             return None
 

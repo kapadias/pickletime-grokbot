@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+CourtReserve reskinned the member-portal scheduler again on 19 Nov 2026. Login and the next-day button still work. The grid wrapper, the date-label testid, the refresh testid and `consolidated-reserve-slot` are gone. An open half hour is a Reserve button lined up with the time column; a full one reads "None Available". Clicking Reserve calls `CreateReservation`. When that says no, the same modal shows "Reservation unavailable" and only Close — that is what the 19 Nov capture recorded, because the account was already at one court that day. When the reservation is allowed, the duration form is painted after that response, not in the modal's first paint.
+
+- The engine treats this grid as the member portal. It reads the date from the toolbar text, finds a time's Reserve button, and still drives the 14 Nov portal and the Kendo grid.
+- A modal that settles on a refusal (no duration control, an unavailable or limit message) is a rejected slot. The bot closes it and tries the next time. It still never clicks a dialog it does not know.
+- The form is waited on until its date, duration and Confirm controls are there. The date and start time are checked, the duration is chosen, the disclosure is ticked, and Confirm is pressed only then. Rehearsal still stops before Confirm. One court per play date is unchanged.
+- `run.sh capture` maps Reserve buttons to their times (the 19 Nov run reported 0 slots), waits for a form's controls, and if the first slot is only a refusal it tries another so the real form is recorded. It still never books.
+- `doctor --full` books on a fake of this grid.
+
 ## 0.3.1
 
 Releases are now published as branches named `release/vX.Y.Z`, which never move once published (a tag `vX.Y.Z` still works if one exists). The Start and update prompts, the clone commands and the doctor's release check use them, so a release no longer needs a tag pushed by hand.

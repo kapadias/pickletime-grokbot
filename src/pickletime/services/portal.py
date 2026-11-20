@@ -1,16 +1,21 @@
 """Booking on CourtReserve's member portal (the newer, single-page layout).
 
-Lifetime Sunnyvale moved to this layout in November 2026. Everything here was
-built from scrubbed captures of the live page (``run.sh capture --open-slot``):
+Lifetime Sunnyvale moved to this layout in November 2026, and the scheduler
+was reskinned again on 19 Nov 2026. Everything here was built from scrubbed
+captures of the live page (``run.sh capture --open-slot``):
 
 * the scheduler shows one day; a toolbar steps it with ``scheduler-next-btn``,
   which the page disables while a day loads and beyond the last released day;
-* each half-hour row is either an open slot
-  (``[data-testid=consolidated-reserve-slot]``, "Reserve"), "None Available",
-  or empty (past). Rows line up with a column of time labels;
-* clicking a slot opens a form (``reservation-create-modal``) that shows the
-  slot's date and time, a duration combobox, a disclosure checkbox, and
-  Confirm (``reservation-mobile-submit-btn``).
+* each half-hour row is either an open slot ("Reserve"), "None Available",
+  or empty (past). Rows line up with a column of time labels. Until 19 Nov
+  the open slot carried ``data-testid=consolidated-reserve-slot``; after that
+  it is a ``[role=button]`` whose text is "Reserve", with no testid;
+* clicking a slot calls ``CreateReservation``. When that says the reservation
+  is not allowed, the same ``reservation-create-modal`` shows "Reservation
+  unavailable" and only Close. When it is allowed, the form shows the slot's
+  date and time, a duration combobox, a disclosure checkbox, and Confirm
+  (``reservation-mobile-submit-btn``). Those controls can appear after the
+  availability response, not in the modal's first paint.
 
 After Confirm: a message saying so is an explicit confirmation; a form that
 closes without an error on the same page is a booking too (``inferred``: the
@@ -53,7 +58,7 @@ _MONTHS = {m: i for i, m in enumerate(
 _SUCCESS = re.compile(r"\b(success|successful|successfully|confirmed|reserved|booked|created|thank you)\b", re.I)
 _FAILURE = re.compile(
     r"\b(error|unable|unavailable|not available|no longer|failed|conflict|already|limit|exceed\w*|"
-    r"cannot|can't|could not|invalid|required|denied|insufficient|overlap\w*|maximum)\b",
+    r"cannot|can't|could not|invalid|required|denied|insufficient|overlap\w*|maximum|restrict\w*)\b",
     re.I,
 )
 
@@ -85,12 +90,22 @@ def parse_portal_label(text: str | None, today: date_type) -> date_type | None:
 # In-page JavaScript
 # --------------------------------------------------------------------------
 _JS_NAV_STATE = """
-var label = document.querySelector(arguments[0]);
+var DATE_RE = /(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\.?\\s+\\d{1,2}/;
+var labelEl = document.querySelector(arguments[0]);
+var label = labelEl ? (labelEl.textContent || '').replace(/\\s+/g, ' ').trim() : '';
+if (!label || !DATE_RE.test(label) || label.length > 40) {
+  var nodes = Array.prototype.filter.call(document.querySelectorAll('body *'), function (e) {
+    if (!e.offsetParent || e.closest('[role=dialog],[aria-modal=true]')) return false;
+    var t = (e.textContent || '').replace(/\\s+/g, ' ').trim();
+    return t.length > 0 && t.length <= 40 && DATE_RE.test(t);
+  });
+  nodes.sort(function (a, b) { return a.textContent.length - b.textContent.length; });
+  label = nodes.length ? nodes[0].textContent.replace(/\\s+/g, ' ').trim() : null;
+}
 var next = document.querySelector(arguments[1]);
 var prev = document.querySelector(arguments[2]);
 var enabled = function (b) { return !!b && !b.disabled && b.getAttribute('aria-disabled') !== 'true'; };
-return {label: label ? label.textContent.trim() : null, next: enabled(next), prev: enabled(prev),
-        hasNext: !!next};
+return {label: label || null, next: enabled(next), prev: enabled(prev), hasNext: !!next};
 """
 
 #: How many slot-data reads the page has completed: a new one means a day loaded.
@@ -102,6 +117,8 @@ return performance.getEntriesByType('resource')
 _JS_CLICK = "arguments[0].click(); return true;"
 
 #: The open-slot element on the row whose time label is ``arguments[0]``.
+#: Prefer the old testid. The 2026-11-19 grid has none: a Reserve button
+#: (``[role=button]``, text exactly "Reserve") lines up with the time column.
 _JS_FIND_SLOT = """
 var want = arguments[0].replace(/\\s+/g, ' ').trim().toUpperCase();
 var page = document.querySelector(arguments[1]) || document.body;
@@ -113,7 +130,13 @@ var mine = labels.filter(function (l) { return l.textContent.replace(/\\s+/g, ' 
 if (!mine) { return {state: 'no-label', labels: labels.length}; }
 mine.scrollIntoView({block: 'center'});
 var tops = labels.map(function (l) { return {l: l, top: l.getBoundingClientRect().top}; });
-var slots = page.querySelectorAll(arguments[2]);
+var slots = Array.prototype.slice.call(page.querySelectorAll(arguments[2]));
+if (!slots.length) {
+  slots = Array.prototype.filter.call(page.querySelectorAll('[role=button]'), function (e) {
+    if (e.closest('[role=dialog],header,nav,[role=navigation]')) return false;
+    return (e.innerText || '').replace(/\\s+/g, ' ').trim().toUpperCase() === 'RESERVE';
+  });
+}
 for (var i = 0; i < slots.length; i++) {
   var r = slots[i].getBoundingClientRect();
   if (r.height === 0) { continue; }
@@ -126,12 +149,38 @@ for (var i = 0; i < slots.length; i++) {
 return {state: 'not-open', slots: slots.length};
 """
 
+_JS_COUNT_SLOTS = """
+var page = document.querySelector(arguments[0]) || document.body;
+var marked = page.querySelectorAll(arguments[1]);
+if (marked.length) return marked.length;
+var n = 0;
+Array.prototype.forEach.call(page.querySelectorAll('[role=button]'), function (e) {
+  if (e.closest('[role=dialog],header,nav,[role=navigation]')) return;
+  if ((e.innerText || '').replace(/\\s+/g, ' ').trim().toUpperCase() === 'RESERVE') n++;
+});
+return n;
+"""
+
 _JS_MODAL_OPEN = """
 var m = document.querySelector(arguments[0]);
 if (!m) { return false; }
 var d = m.querySelector('[role=dialog]') || m;
 var cs = getComputedStyle(d);
 return d.offsetParent !== null && cs.display !== 'none' && cs.visibility !== 'hidden';
+"""
+
+#: Text and busy-state of the open modal, so a refusal can be told from a form
+#: whose controls have not been painted yet.
+_JS_MODAL_STATUS = """
+var m = document.querySelector(arguments[0]);
+if (!m) return {open: false, text: '', busy: false};
+var d = m.querySelector('[role=dialog]') || m;
+var cs = getComputedStyle(d);
+var shown = function (e) { var r = e.getBoundingClientRect(); var s = getComputedStyle(e);
+  return r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden'; };
+var open = d.offsetParent !== null && cs.display !== 'none' && cs.visibility !== 'hidden';
+var busy = Array.prototype.some.call(m.querySelectorAll('[aria-busy=true],.ant-spin-spinning,[class*=spinner i],[class*=loading i]'), shown);
+return {open: open, text: (d.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 400), busy: busy};
 """
 
 _JS_MODAL_PARTS = """
@@ -147,10 +196,22 @@ if (!confirm) {
   })[0] || null;
 }
 var dt = q(arguments[1]);
+var dateTime = dt ? dt.innerText.replace(/\\s+/g, ' ').trim() : null;
+if (!dateTime) {
+  var best = null;
+  Array.prototype.forEach.call(m.querySelectorAll('div,span,p'), function (e) {
+    var t = (e.innerText || '').replace(/\\s+/g, ' ').trim();
+    if (t.length > 200 || t.length < 8) return;
+    if (!/\\d{1,2}:\\d{2}\\s*(AM|PM)/i.test(t) || !/\\b\\d{1,2}\\b/.test(t)) return;
+    if (!best || t.length < best.length) best = t;
+  });
+  dateTime = best;
+}
+var combo = q(arguments[2]) || q('[role=combobox], select');
 return {
-  dateTime: dt ? dt.innerText.replace(/\\s+/g, ' ').trim() : null,
-  combo: q(arguments[2]),
-  comboText: q(arguments[2]) ? q(arguments[2]).innerText.replace(/\\s+/g, ' ').trim() : null,
+  dateTime: dateTime,
+  combo: combo,
+  comboText: combo ? combo.innerText.replace(/\\s+/g, ' ').trim() : null,
   checkbox: checkbox,
   checked: checkbox ? checkbox.getAttribute('aria-checked') : null,
   confirm: confirm,
@@ -297,6 +358,10 @@ class PortalBookingService(BookingService):
         return True
 
     def _go_to(self, target: date_type) -> tuple[bool, str]:
+        # The label is filled when the day's data starts loading, which can be
+        # a moment after the next button is in the DOM.
+        if not self.waiter.until(lambda: self._shown_date() is not None, timeout=self.settings.webdriver_timeout):
+            return False, f"cannot read the scheduler's date label ({self._nav().get('label')!r})"
         for _ in range(400):  # a year either way, with room to spare
             shown = self._shown_date()
             if shown is None:
@@ -376,6 +441,9 @@ class PortalBookingService(BookingService):
         return "reloaded"
 
     def slot_count(self) -> int:
+        counted = self.waiter.js(_JS_COUNT_SLOTS, locators.PORTAL_SCHEDULER, locators.PORTAL_SLOT)
+        if isinstance(counted, int):
+            return counted
         return len(self.driver.find_elements("css selector", locators.PORTAL_SLOT))
 
     # -- one attempt -------------------------------------------------------
@@ -385,6 +453,36 @@ class PortalBookingService(BookingService):
 
     def _modal_open(self) -> bool:
         return bool(self.waiter.js(_JS_MODAL_OPEN, locators.PORTAL_MODAL))
+
+    def _modal_status(self) -> dict[str, Any]:
+        raw = self.waiter.js(_JS_MODAL_STATUS, locators.PORTAL_MODAL)
+        return raw if isinstance(raw, dict) else {}
+
+    def _await_modal_ready(self) -> dict[str, Any]:
+        """The form's controls, or a refusal that never renders them.
+
+        CreateReservation can answer before the form is painted. An invalid
+        slot shows "Reservation unavailable" and Close; a valid one mounts the
+        date, duration and Confirm controls a moment later. Waiting for one or
+        the other avoids reading the empty first paint as a missing form.
+        """
+
+        def ready() -> dict[str, Any] | None:
+            if not self._modal_open():
+                return None
+            parts = self._parts()
+            if parts.get("dateTime"):
+                return {"kind": "form", "parts": parts}
+            status = self._modal_status()
+            if status.get("busy"):
+                return None
+            text = str(status.get("text") or "")
+            if text and _FAILURE.search(text) and not parts.get("combo"):
+                return {"kind": "refused", "text": text}
+            return None
+
+        found = self.waiter.until(ready, timeout=self.settings.webdriver_timeout)
+        return found if isinstance(found, dict) else {}
 
     def _parts(self) -> dict[str, Any]:
         parts = self.waiter.js(
@@ -463,7 +561,22 @@ class PortalBookingService(BookingService):
             self._why = "the reservation form did not open"
             logger.warning(f"{candidate.label}: {self._why}")
             return SlotOutcome.ERROR
-        parts = self.waiter.until(lambda: (lambda p: p if p.get("dateTime") else None)(self._parts()), timeout=5) or {}
+        ready = self._await_modal_ready()
+        if ready is None or ready.get("kind") != "form":
+            if ready is not None and ready.get("kind") == "refused":
+                # The site said no before any form existed (the daily court limit
+                # does this). Nothing here is safe to click except Close.
+                message = str(ready.get("text") or "")
+                self._why = f"the site refused: {message[:160]}"
+                logger.info(f"{candidate}: {self._why}")
+                self._close_modal()
+                return SlotOutcome.REJECTED
+            self._why = "the reservation form did not finish loading"
+            logger.warning(f"{candidate.label}: {self._why}")
+            self._close_modal()
+            return SlotOutcome.ERROR
+        raw_parts = ready.get("parts")
+        parts: dict[str, Any] = raw_parts if isinstance(raw_parts, dict) else {}
 
         # Never confirm a form for a different slot than the one we meant.
         if not self.form_shows(parts.get("dateTime"), candidate):

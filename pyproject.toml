@@ -1,6 +1,6 @@
 [project]
 name = "pickletime-bot"
-version = "0.3.1"
+version = "0.3.2"
 description = "Books CourtReserve courts the moment they open, run from a Grok Bot"
 readme = "README.md"
 license = { text = "MIT" }

@@ -195,3 +195,61 @@ def test_capture_on_the_new_portal_layout(chrome_paths, make_settings, tmp_path:
 
 def test_dotnet_dates_survive_the_shape():
     assert json_shape({"Start": "/Date(1763136000000)/"}) == {"Start": "/Date(1763136000000)/"}
+
+
+@pytest.mark.e2e
+def test_capture_on_the_reserve_button_grid(chrome_paths, make_settings, tmp_path: Path):
+    """The 19 Nov grid: Reserve buttons map to times, and a refusal is not the form.
+
+    The first Reserve answers "Reservation unavailable" (no duration control).
+    The form on the next slot appears only after a delay. Capture must wait,
+    record the real controls, and still book nothing.
+    """
+    from fake_portal import PortalState
+    from fake_portal_grid import FakePortalGrid
+
+    binary, driver = chrome_paths
+    overrides = {"chrome_binary": binary, "days_in_advance": 8}
+    if driver:
+        overrides["chrome_driver_path"] = driver
+    target = make_settings(**overrides).booking.target_date()
+    state = PortalState(
+        today=target - timedelta(days=8),
+        form_delay_ms=1200,
+        open_slots={target: {"8:00 AM": 1, "9:00 AM": 2, "6:30 PM": 1, "7:00 PM": 1}},
+        refuse_open={"8:00 AM"},
+    )
+
+    with FakePortalGrid(state) as site:
+        settings = make_settings(base_url=site.base_url, **overrides)
+        result = capture_site(settings, tmp_path / "cap", open_slot=True)
+
+    steps = {s["step"]: s for s in result["steps"]}
+    assert steps["login"]["ok"], result["steps"]
+    assert "legacy Kendo grid present: False" in steps["bookings_page"]["detail"]
+    assert steps["date_nav"]["ok"], steps["date_nav"]
+    assert result["date_nav"]["how"] == "toolbar control naming next"
+    assert state.reads[-1] == target.isoformat()
+
+    reserves = {m["time"] for m in result["slot_map"] if m.get("text") == "Reserve"}
+    assert {"9:00 AM", "6:30 PM", "7:00 PM"} <= reserves, result["slot_map"]
+    assert all(not m.get("testid") for m in result["slot_map"] if m.get("text") == "Reserve")
+    unavailable = {m["time"] for m in result["slot_map"] if m.get("text") == "None Available"}
+    assert "10:30 AM" in unavailable
+
+    assert "consolidated-reserve-slot" not in result["testids"]
+    assert "scheduler-page" not in result["testids"]
+    assert "scheduler-next-btn" in result["testids"]
+
+    assert steps["open_slot"]["ok"], result["steps"]
+    assert "skipped 1 refusal" in steps["open_slot"]["detail"]
+    assert steps["duration_list"]["ok"], result["steps"]
+    assert [o["text"] for o in result["duration_list"]["options"]] == [
+        "30 minutes", "1 hour", "1 hour & 30 minutes", "2 hours"]
+    assert any(c.get("testid") == "reservation-mobile-submit-btn" for c in result["slot_controls"])
+    assert state.bookings == []
+
+    written = (tmp_path / "cap" / "summary.txt").read_text(encoding="utf-8")
+    assert "player@example.com" not in written and "correct-horse" not in written
+    assert "Reservation unavailable" in written
+    assert written.index("== slot map") < written.index("== data requests")

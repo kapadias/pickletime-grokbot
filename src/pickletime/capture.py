@@ -305,7 +305,7 @@ return found[0] || null;
 _CONTROLS_JS = r"""
 const root = arguments[0];
 const out = [];
-for (const e of root.querySelectorAll('select,input,textarea,button,[role=combobox],[role=listbox],[role=option],[role=radio],[role=checkbox],[role=switch]')) {
+for (const e of root.querySelectorAll('select,input,textarea,button,[role=button],[role=combobox],[role=listbox],[role=option],[role=radio],[role=checkbox],[role=switch],[aria-haspopup]')) {
   const item = {tag: e.tagName.toLowerCase(), type: e.getAttribute('type'), id: e.id, name: e.getAttribute('name'),
     role: e.getAttribute('role'), cls: e.getAttribute('class'), testid: e.getAttribute('data-testid'),
     label: (e.labels && e.labels[0] ? e.labels[0].innerText : '') || e.getAttribute('aria-label') || '',
@@ -333,8 +333,14 @@ return out;
 """
 
 #: The scrollable grid holding the slots, or the page itself.
+#: The 2026-11-19 grid has no slot testid, so start from a Reserve button or a time label.
 _GRID_SCROLLER_JS = r"""
-const first = document.querySelector('[data-testid*=slot i]') || document.querySelector('[data-testid*=scheduler i]');
+const reserve = Array.from(document.querySelectorAll('[role=button]')).find(e =>
+  /^\s*reserve\s*$/i.test(e.innerText || '') && !e.closest('header,nav,[role=dialog]'));
+const time = Array.from(document.querySelectorAll('body *')).find(e =>
+  e.children.length === 0 && /^\s*\d{1,2}:\d{2}\s?(AM|PM)\s*$/i.test(e.textContent || '') && !e.closest('[role=dialog]'));
+const first = document.querySelector('[data-testid*=slot i]') || reserve || time
+  || document.querySelector('[data-testid*=scheduler i]');
 let el = first;
 while (el && el !== document.body) {
   const cs = getComputedStyle(el);
@@ -345,13 +351,24 @@ return document.scrollingElement;
 """
 
 #: Visible slot-like elements, each paired with the time label on its row.
+#: Testid slots (the older portal) and Reserve buttons / "None Available"
+#: cells (the 2026-11-19 grid) are both recorded.
 _SLOT_MAP_JS = r"""
 const TIME = /^\s*\d{1,2}:\d{2}\s?(AM|PM)\s*$/i;
 const notDialog = e => !e.closest('[role=dialog],[aria-modal=true],header,nav');
 const shown = e => { const r = e.getBoundingClientRect(); return r.height > 0 && r.bottom > 0 && r.top < innerHeight; };
 const labels = Array.from(document.querySelectorAll('body *')).filter(e => notDialog(e) && shown(e) &&
   e.children.length === 0 && TIME.test(e.textContent || '')).map(e => ({t: e.textContent.trim(), top: e.getBoundingClientRect().top}));
-const slots = Array.from(document.querySelectorAll('[data-testid*=slot i]')).filter(e => notDialog(e) && shown(e));
+const seen = new Set();
+const slots = [];
+const add = e => { if (e && notDialog(e) && shown(e) && !seen.has(e)) { seen.add(e); slots.push(e); } };
+Array.from(document.querySelectorAll('[data-testid*=slot i]')).forEach(add);
+Array.from(document.querySelectorAll('[role=button]')).forEach(e => {
+  if (/^\s*reserve\s*$/i.test(e.innerText || '')) add(e);
+});
+Array.from(document.querySelectorAll('body *')).forEach(e => {
+  if (e.children.length === 0 && /^\s*none available\s*$/i.test(e.textContent || '')) add(e);
+});
 const out = [];
 for (const e of slots) {
   const r = e.getBoundingClientRect();
@@ -381,6 +398,12 @@ return {box: box, options: options};
 
 _DANGEROUS_BUTTON = re.compile(r"\b(save|confirm|submit|pay|checkout|book|reserve|purchase|complete)\b", re.I)
 _CLOSE_BUTTON = re.compile(r"^\s*(cancel|close|×|x|back|no)\s*$", re.I)
+#: A dialog that is a refusal rather than a form. "Reservation unavailable" is
+#: what the 2026-11-19 portal shows when CreateReservation says no.
+_REFUSAL = re.compile(
+    r"\b(unavailable|not available|no longer|unable|restricted|restrict\w*|limit|already|error)\b",
+    re.I,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -703,6 +726,16 @@ def capture_site(
 
 
 def _open_one_slot(driver, waiter, candidates, result, step, snapshot) -> None:  # type: ignore[no-untyped-def]
+    """Open one booking form. A refusal dialog is closed and the next slot tried.
+
+    The 2026-11-19 capture clicked a Reserve that the site refused (the member
+    was already at one court that day). The modal never grew a duration
+    control, and the capture reported that as "no combobox" and stopped. A
+    refusal is recorded, then another slot is opened, and a form whose
+    controls appear late is waited for. Nothing labelled confirm/save/book is
+    clicked.
+    """
+    refusals: list[str] = []
     for element in candidates[:5]:
         try:
             label = driver.execute_script(
@@ -713,23 +746,83 @@ def _open_one_slot(driver, waiter, candidates, result, step, snapshot) -> None: 
         except Exception as exc:  # noqa: BLE001 - try the next candidate
             logger.debug(f"slot candidate click failed: {exc}")
             continue
-        dialog = waiter.until(lambda: driver.execute_script(_DIALOG_JS), timeout=6)
-        if dialog is None and driver.current_url == url_before:
+        found = waiter.until(lambda: _classify_dialog(driver), timeout=8)
+        dialog = driver.execute_script(_DIALOG_JS)
+        if found is None and dialog is None and driver.current_url == url_before:
             continue
+        kind = (found or {}).get("kind")
+        text = (found or {}).get("text") or _dialog_text(driver, dialog)
+        if kind == "refusal":
+            refusals.append(scrub_text(text) or "refusal")
+            _close_dialog(driver, waiter, dialog, url_before, step)
+            continue
+        skipped = f"; skipped {len(refusals)} refusal dialog(s) first" if refusals else ""
         step("open_slot", True, f"clicked {scrub_text(label)!r}; dialog found: {dialog is not None}; "
-             f"url changed: {driver.current_url != url_before}")
+             f"url changed: {driver.current_url != url_before}{skipped}")
+        result["skipped_refusals"] = refusals
+        result["dialog_text"] = scrub_text(text)
         if dialog is not None:
             snapshot("slot_dialog", dialog, 1200)
-            controls = driver.execute_script(_CONTROLS_JS, dialog) or []
+            controls = found.get("controls") if found else None
+            if not controls:
+                controls = driver.execute_script(_CONTROLS_JS, dialog) or []
         else:
             snapshot("slot_page", None, 1500)
             controls = driver.execute_script(_CONTROLS_JS, driver.find_element("css selector", "body")) or []
         result["slot_controls"] = [_scrub_control(c) for c in controls]
         if dialog is not None:
-            _capture_duration_list(driver, waiter, dialog, result, step)
+            if kind == "form":
+                _capture_duration_list(driver, waiter, dialog, result, step)
+            else:
+                step("duration_list", False,
+                     "no combobox or select appeared after waiting"
+                     + (f"; dialog text: {scrub_text(text)}" if scrub_text(text) else ""))
         _close_dialog(driver, waiter, driver.execute_script(_DIALOG_JS), url_before, step)
         return
+    if refusals:
+        result["skipped_refusals"] = refusals
+        result["dialog_text"] = refusals[-1]
+        step("open_slot", True,
+             f"opened {len(refusals)} dialog(s); each was a refusal, not a form: {refusals[0]}")
+        step("duration_list", False, "no booking form rendered; the dialog refused the reservation")
+        return
     step("open_slot", False, "clicking the first 5 candidates opened no dialog")
+
+
+def _dialog_text(driver, dialog) -> str:  # type: ignore[no-untyped-def]
+    if dialog is None:
+        return ""
+    try:
+        return str(driver.execute_script(
+            "return ((arguments[0].innerText)||'').replace(/\\s+/g,' ').trim().slice(0,500)", dialog
+        ) or "")
+    except Exception:  # noqa: BLE001 - a stale dialog just means there is no text
+        return ""
+
+
+def _classify_dialog(driver) -> dict[str, Any] | None:  # type: ignore[no-untyped-def]
+    """A form (it has a duration-like control), a refusal, or nothing yet.
+
+    Returning None keeps the wait going: the form may still be painting.
+    """
+    dialog = driver.execute_script(_DIALOG_JS)
+    if dialog is None:
+        return None
+    controls = driver.execute_script(_CONTROLS_JS, dialog) or []
+    text = _dialog_text(driver, dialog)
+
+    def interesting(control: dict[str, Any]) -> bool:
+        role = control.get("role") or ""
+        tag = control.get("tag") or ""
+        if role in {"combobox", "listbox", "checkbox", "radio", "switch"} or tag in {"select", "textarea"}:
+            return True
+        return tag == "input" and (control.get("type") or "text") != "hidden"
+
+    if any(interesting(control) for control in controls):
+        return {"kind": "form", "controls": controls, "text": text}
+    if text and _REFUSAL.search(text):
+        return {"kind": "refusal", "controls": controls, "text": text}
+    return None
 
 
 def _scrub_testids(raw: dict[str, Any]) -> dict[str, Any]:
@@ -891,6 +984,11 @@ def render_summary(result: dict[str, Any], *, max_chars: int = 48_000) -> str:
         lines += [json.dumps(o, separators=(",", ":")) for o in result["duration_list"]["options"]]
         lines += outline_lines(result["duration_list"].get("box"), limit=40)
 
+    if result.get("skipped_refusals"):
+        lines += ["", "== refusal dialogs (closed, next slot tried)"]
+        lines += list(result["skipped_refusals"])
+    if result.get("dialog_text"):
+        lines += ["", "== dialog text", str(result["dialog_text"])]
     if result.get("slot_controls"):
         lines += ["", "== booking form controls"]
         lines += [json.dumps(c, separators=(",", ":")) for c in result["slot_controls"]]

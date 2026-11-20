@@ -785,9 +785,10 @@ def _fake_site_rehearsal() -> tuple[bool, str]:
 
 
 def _fake_portal_rehearsal() -> tuple[bool, str]:
-    """Book on the test suite's fake member portal: the layout the live site uses now."""
+    """Book on the test suite's fake of the current member portal (Reserve-button grid)."""
     sys.path.insert(0, str(CHECKOUT / "tests" / "engine"))
-    from fake_portal import FakePortal, PortalState  # type: ignore[import-not-found]
+    from fake_portal import PortalState  # type: ignore[import-not-found]
+    from fake_portal_grid import FakePortalGrid  # type: ignore[import-not-found]
 
     from pickletime.bot import CourtBookingBot
     from pickletime.ledger import NullLedger
@@ -800,10 +801,13 @@ def _fake_portal_rehearsal() -> tuple[bool, str]:
         "chrome_binary": os.environ.get("CHROME_BIN"), "chrome_driver_path": os.environ.get("CHROME_DRIVER_PATH"),
     }
     target = BookingSettings(**base).target_date()
-    state = PortalState(today=target - timedelta(days=8), open_slots={target: {"6:30 PM": 1, "7:00 PM": 1}})
+    state = PortalState(
+        today=target - timedelta(days=8), form_delay_ms=500,
+        open_slots={target: {"6:30 PM": 1, "7:00 PM": 1}},
+    )
     runtime = RuntimeSettings(log_level="WARNING", log_json=False, ledger_path=str(STATE / "fake-portal-ledger.json"))
     started = _time.monotonic()
-    with FakePortal(state) as site:
+    with FakePortalGrid(state) as site:
         settings = Settings(booking=BookingSettings(**base, base_url=site.base_url),
                             credentials=Credentials(username=state.username, password=state.password), runtime=runtime)
         report = CourtBookingBot(settings, ledger=NullLedger()).run()

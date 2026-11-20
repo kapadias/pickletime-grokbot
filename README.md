@@ -43,13 +43,13 @@ arrives as a chat message on your phone. Everything it needs is in this reposito
 | 🧪 **Rehearses first** | Starts in dry-run mode; real bookings only after you approve "go live" |
 | 🛡️ **Books once** | A ledger that survives restarts stops a second court on the same date |
 | 💬 **Reports in chat** | `BOOKED`, `NOT BOOKED` or `quiet` on off days, with timings |
-| 🔁 **Both CourtReserve layouts** | The older calendar and the newer member portal |
+| 🔁 **CourtReserve layouts** | The older calendar and the member portal, including the Reserve-button scheduler |
 
 ## Start
 
 Open Grok Bot, create a new Bot, and paste:
 
-> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.1/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.1/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
+> Set up PickleTime Bot from https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.2/skills/pickletime-bot-bootstrap/SKILL.md. Follow that bootstrap skill and the runbook at https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.2/SETUP.md step by step. Install everything under /workspace, prove Chrome works on the local fake site, ask me for my CourtReserve login only through the secure secret card (never in chat), keep the bot in rehearsal mode, and finish with the setup receipt.
 
 The Bot installs Python, the booking engine and Chrome under `/workspace`, then
 books a court on a local fake CourtReserve to prove Chrome works on its
@@ -79,7 +79,7 @@ setup? Say **"retire Cloud Run"** for the command that pauses it.
 Paste this in your Bot's chat. Your schedule, login and booking history are
 kept; it shows your current schedule and asks whether to keep it or change it:
 
-> Update PickleTime Bot to v0.3.1 following section 10 of https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.1/SETUP.md, keeping my config and state. Then show my schedule and ask me whether to keep it or change it.
+> Update PickleTime Bot to v0.3.2 following section 10 of https://github.com/kapadias/pickletime-grokbot/blob/release/v0.3.2/SETUP.md, keeping my config and state. Then show my schedule and ask me whether to keep it or change it.
 
 ## How it works
 
@@ -184,8 +184,8 @@ play dates, and changes nothing until you tap approve.
 
 ### Does it work with the new CourtReserve member portal?
 
-Yes. It books on both the older calendar and the newer single-page member
-portal, and picks the right one automatically.
+Yes. It books on the older calendar and on the member portal, including the
+scheduler whose open times are Reserve buttons, and picks the right one automatically.
 
 ### Can it book on a rotating or alternating-week schedule?
 

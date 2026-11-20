@@ -86,6 +86,13 @@ class PortalState:
     form_load_ms: int = 0
     #: Confirm presses the form ignored because it was still loading.
     ignored_presses: int = 0
+    #: Slot labels whose Reserve click is refused before a form exists
+    #: ("Reservation unavailable"), the way the 2026-11-19 portal answers
+    #: CreateReservation when the member is already at the daily court limit.
+    refuse_open: set[str] = field(default_factory=set)
+    #: The 2026-11-19 grid paints the form this long after CreateReservation
+    #: says the slot is allowed. The older page ignores it.
+    form_delay_ms: int = 0
     bookings: list[dict[str, str]] = field(default_factory=list)
     reads: list[str] = field(default_factory=list)
 
